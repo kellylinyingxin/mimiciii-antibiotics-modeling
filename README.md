@@ -1,7 +1,7 @@
 MIMICiii Antibiotics Modeling
 ==============================
 
-my work with Dr. Yuan Luo focuses on modeling antibiotic time courses for patients admitted to the ICU based on a variety of clinical parameters using data from the MIMICiii ICU database
+my work with Dr. Yuan Luo and Dr.Nelson Sánchez-Pinto focuses on modeling antibiotic time courses for patients admitted to the ICU based on a variety of clinical parameters using data from the MIMICiii ICU database
 
 Project Organization
 ------------
