@@ -1,9 +1,8 @@
--- This query pivots the vital signs for the first 24 hours of a patient's stay
+-- This query pivots the vital signs for each 24 hours of a patient's stay in icu
 -- Vital signs include heart rate, blood pressure, respiration rate, and temperature
-
-DROP MATERIALIZED VIEW IF EXISTS vitalsall CASCADE;
-create materialized view vitalsall as
-SELECT pvt.subject_id, pvt.hadm_id, pvt.icustay_id
+DROP MATERIALIZED VIEW IF EXISTS vitals_all;
+CREATE MATERIALIZED VIEW vitals_all as
+SELECT pvt.subject_id, pvt.hadm_id, pvt.icustay_id, pvt.day
 
 -- Easier names
 , min(case when VitalID = 1 then valuenum else null end) as HeartRate_Min
@@ -32,7 +31,7 @@ SELECT pvt.subject_id, pvt.hadm_id, pvt.icustay_id
 , avg(case when VitalID = 8 then valuenum else null end) as Glucose_Mean
 
 FROM  (
-  select ie.subject_id, ie.hadm_id, ie.icustay_id
+  select ie.subject_id, ie.hadm_id, ie.icustay_id, ceiling((extract( epoch from ce.charttime - ie.intime))/60/60/24) as day 
   , case
     when itemid in (211,220045) and valuenum > 0 and valuenum < 300 then 1 -- HeartRate
     when itemid in (51,442,455,6701,220179,220050) and valuenum > 0 and valuenum < 400 then 2 -- SysBP
@@ -76,7 +75,6 @@ FROM  (
   220180, --	Non Invasive Blood Pressure diastolic
   220051, --	Arterial Blood Pressure diastolic
 
-
   -- MEAN ARTERIAL PRESSURE
   456, --"NBP Mean"
   52, --"Arterial BP Mean"
@@ -91,7 +89,6 @@ FROM  (
   615,--	Resp Rate (Total)
   220210,--	Respiratory Rate
   224690, --	Respiratory Rate (Total)
-
 
   -- SPO2, peripheral
   646, 220277,
@@ -112,7 +109,13 @@ FROM  (
   223761, -- "Temperature Fahrenheit"
   678 --	"Temperature F"
 
-  )
+  ) and ce.charttime > ie.intime
 ) pvt
-group by pvt.subject_id, pvt.hadm_id, pvt.icustay_id
-order by pvt.subject_id, pvt.hadm_id, pvt.icustay_id;
+group by pvt.subject_id, pvt.hadm_id, pvt.icustay_id, day
+order by pvt.subject_id, pvt.hadm_id, pvt.icustay_id, day;
+
+--added the "ceiling((extract( epoch from ce.charttime - ie.intime))/60/60/24) as day" to the select statement that's grabbing the bulk of the data. 
+--also added "and ce.charttime > ie.intime" to the where statement that follows the chartevent and icustay join. 
+-- also added day into groupby. 
+-- blocked out the "and ce.charttime between ie.intime and ie.intime + interval '1' day" line so that our data extends beyond the first day.
+-- added "pvt.day" to the initial select line
