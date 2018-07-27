@@ -5,7 +5,7 @@
 DROP MATERIALIZED VIEW IF EXISTS labsall CASCADE;
 CREATE materialized VIEW labsall AS
 SELECT
-  pvt.subject_id, pvt.hadm_id, pvt.icustay_id
+  pvt.subject_id, pvt.hadm_id, pvt.icustay_id, pvt.day
 
   , min(CASE WHEN label = 'ANION GAP' THEN valuenum ELSE null END) as ANIONGAP_min
   , max(CASE WHEN label = 'ANION GAP' THEN valuenum ELSE null END) as ANIONGAP_max
@@ -49,7 +49,7 @@ SELECT
 
 FROM
 ( -- begin query that extracts the data
-  SELECT ie.subject_id, ie.hadm_id, ie.icustay_id
+  SELECT ie.subject_id, ie.hadm_id, ie.icustay_id, ceiling((extract( epoch from le.charttime - ie.intime))/60/60/24) as day
   -- here we assign labels to ITEMIDs
   -- this also fuses together multiple ITEMIDs containing the same data
   , CASE
@@ -118,7 +118,7 @@ FROM
 
   LEFT JOIN mimiciii.labevents le
     ON le.subject_id = ie.subject_id AND le.hadm_id = ie.hadm_id
-    AND le.charttime BETWEEN (ie.intime - interval '6' hour) AND (ie.intime + interval '1' day)
+    --AND le.charttime BETWEEN (ie.intime - interval '6' hour) AND (ie.intime + interval '1' day)
     AND le.ITEMID in
     (
       -- comment is: LABEL | CATEGORY | FLUID | NUMBER OF ROWS IN LABEVENTS
@@ -151,5 +151,5 @@ FROM
     )
     AND valuenum IS NOT null AND valuenum > 0 -- lab values cannot be 0 and cannot be negative
 ) pvt
-GROUP BY pvt.subject_id, pvt.hadm_id, pvt.icustay_id
-ORDER BY pvt.subject_id, pvt.hadm_id, pvt.icustay_id;
+GROUP BY pvt.subject_id, pvt.hadm_id, pvt.icustay_id, day
+ORDER BY pvt.subject_id, pvt.hadm_id, pvt.icustay_id, day;

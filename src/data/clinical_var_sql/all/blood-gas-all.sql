@@ -4,11 +4,11 @@
 -- things to check:
 --  when a mixed venous/arterial blood sample are taken at the same time, is the store time different?
 
-DROP MATERIALIZED VIEW IF EXISTS bloodgasfirstday CASCADE;
-create materialized view bloodgasfirstday as
+DROP MATERIALIZED VIEW IF EXISTS bloodgasall CASCADE;
+create materialized view bloodgasall as
 with pvt as
 ( -- begin query that extracts the data
-  select ie.subject_id, ie.hadm_id, ie.icustay_id
+  select ie.subject_id, ie.hadm_id, ie.icustay_id, ceiling((extract( epoch from le.charttime - ie.intime))/60/60/24) as day
   -- here we assign labels to ITEMIDs
   -- this also fuses together multiple ITEMIDs containing the same data
       , case
@@ -61,8 +61,8 @@ with pvt as
         else valuenum
         end as valuenum
 
-    from icustays ie
-    left join labevents le
+    from mimiciii.icustays ie
+    left join mimiciii.labevents le
       on le.subject_id = ie.subject_id and le.hadm_id = ie.hadm_id
       and le.charttime between (ie.intime - interval '6' hour) and (ie.intime + interval '1' day)
       and le.ITEMID in
@@ -72,9 +72,9 @@ with pvt as
         , 50810, 50811, 50812, 50813, 50814, 50815, 50816, 50817, 50818, 50819
         , 50820, 50821, 50822, 50823, 50824, 50825, 50826, 50827, 50828
         , 51545
-      )
+      ) AND le.charttime >= ie.intime
 )
-select pvt.SUBJECT_ID, pvt.HADM_ID, pvt.ICUSTAY_ID, pvt.CHARTTIME
+select pvt.SUBJECT_ID, pvt.HADM_ID, pvt.ICUSTAY_ID, pvt.CHARTTIME, pvt.day
 , max(case when label = 'SPECIMEN' then value else null end) as SPECIMEN
 , max(case when label = 'AADO2' then valuenum else null end) as AADO2
 , max(case when label = 'BASEEXCESS' then valuenum else null end) as BASEEXCESS
@@ -104,5 +104,5 @@ select pvt.SUBJECT_ID, pvt.HADM_ID, pvt.ICUSTAY_ID, pvt.CHARTTIME
 , max(case when label = 'VENTILATIONRATE' then valuenum else null end) as VENTILATIONRATE
 , max(case when label = 'VENTILATOR' then valuenum else null end) as VENTILATOR
 from pvt
-group by pvt.subject_id, pvt.hadm_id, pvt.icustay_id, pvt.CHARTTIME
-order by pvt.subject_id, pvt.hadm_id, pvt.icustay_id, pvt.CHARTTIME;
+group by pvt.subject_id, pvt.hadm_id, pvt.icustay_id, pvt.CHARTTIME, pvt.day
+order by pvt.subject_id, pvt.hadm_id, pvt.icustay_id, pvt.CHARTTIME, pvt.day;

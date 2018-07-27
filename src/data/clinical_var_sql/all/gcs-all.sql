@@ -21,12 +21,12 @@
 --    This was ascertained either from interviewing the physician who ordered the sedation,
 --    or by reviewing the patient's medical record.
 
-DROP MATERIALIZED VIEW IF EXISTS gcsfirstday CASCADE;
-create materialized view gcsfirstday as
+DROP MATERIALIZED VIEW IF EXISTS gcsall CASCADE;
+create materialized view gcsall as
 with base as
 (
   SELECT pvt.ICUSTAY_ID
-  , pvt.charttime
+  , pvt.charttime, pvt.day
 
   -- Easier names - note we coalesced Metavision and CareVue IDs below
   , max(case when pvt.itemid = 454 then pvt.valuenum else null end) as GCSMotor
@@ -44,7 +44,7 @@ with base as
           OVER (PARTITION BY pvt.ICUSTAY_ID ORDER BY pvt.charttime ASC) as rn
 
   FROM  (
-  select l.ICUSTAY_ID
+  select l.ICUSTAY_ID, ceiling((extract( epoch from l.charttime - b.intime))/60/60/24) as day
   -- merge the ITEMIDs so that the pivot applies to both metavision/carevue data
   , case
       when l.ITEMID in (723,223900) then 723
@@ -79,11 +79,11 @@ with base as
     , 223900, 223901, 220739
   )
   -- Only get data for the first 24 hours
-  and l.charttime between b.intime and b.intime + interval '1' day
+  --and l.charttime between b.intime and b.intime + interval '1' day
   -- exclude rows marked as error
-  and l.error IS DISTINCT FROM 1
+  and l.error IS DISTINCT FROM 1 and l.charttime >= b.intime
   ) pvt
-  group by pvt.ICUSTAY_ID, pvt.charttime
+  group by pvt.ICUSTAY_ID, pvt.charttime, day
 )
 , gcs as (
   select b.*

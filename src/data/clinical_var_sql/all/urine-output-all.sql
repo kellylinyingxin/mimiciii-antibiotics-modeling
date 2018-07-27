@@ -53,6 +53,6 @@ where itemid in
 226558, -- L Ureteral Stent
 227488, -- GU Irrigant Volume In
 227489  -- GU Irrigant/Urine Volume Out
-)
+) AND oe.charttime >= ie.intime
 group by ie.subject_id, ie.hadm_id, ie.icustay_id, day
 order by ie.subject_id, ie.hadm_id, ie.icustay_id, day;
