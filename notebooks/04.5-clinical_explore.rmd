@@ -34,15 +34,13 @@ library(stargazer)
 options(width = 100)
 
 ###file locations for github
+#vaso_df <- read.csv('/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/raw/csv/10072018_vaso_all_df.csv', stringsAsFactors=FALSE, fileEncoding="latin1")
 
-final_pt_df2 <- read.csv('/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/raw/csv/06072018_final_pt_df2.csv', stringsAsFactors=FALSE, fileEncoding="latin1")
-vaso_df <- read.csv('/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/raw/csv/10072018_vaso_all_df.csv', stringsAsFactors=FALSE, fileEncoding="latin1")
+#labs_all48<- read.csv('/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/wrangled/labs_all48_df.csv', stringsAsFactors=FALSE, fileEncoding="latin1")
 
-labs_all48<- read.csv('/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/wrangled/labs_all48_df.csv', stringsAsFactors=FALSE, fileEncoding="latin1")
+#bg_all48<- read.csv('/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/wrangled/labs_all48_df.csv', stringsAsFactors=FALSE, fileEncoding="latin1")
 
-bg_all48<- read.csv('/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/wrangled/labs_all48_df.csv', stringsAsFactors=FALSE, fileEncoding="latin1")
-
-vital_all48<- read.csv('/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/wrangled/vital_all48_df.csv', stringsAsFactors=FALSE, fileEncoding="latin1")
+#vital_all48<- read.csv('/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/wrangled/vital_all48_df.csv', stringsAsFactors=FALSE, fileEncoding="latin1")
 
 ```
 
@@ -51,6 +49,23 @@ vital_all48<- read.csv('/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-m
 This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
 
 When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+#vaso_<- read.csv('/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/wrangled/labs_all48_df.csv', stringsAsFactors=FALSE, fileEncoding="latin1")
+
+final_pt_df2 <- read.csv('/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/raw/csv/16082018_final_pt_df2.csv', stringsAsFactors=FALSE, fileEncoding="latin1")
+
+
+labs_all48<- read.csv('/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/raw/csv/72_hr_window/27082018_labs_all_nosummary_72.csv', stringsAsFactors=FALSE, fileEncoding="latin1")
+```
+
+
+```{r}
+test<-labs_72[,c('label','valuenum')]
+
+a<- ggplot(test, aes(x=valuenum)) #+ geom_density()
+a + facet_wrap(~ label, ncol = 3, scales = "free_y") + geom_density(aes(color = label)) # 
+```
 
 ```{r cars}
 #a <- ggplot(wdata, aes(x = weight))
