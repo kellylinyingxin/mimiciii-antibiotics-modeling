@@ -60,6 +60,12 @@ labs_all48<- read.csv('/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-mo
 ```
 
 
+```{python}
+import pandas as pd
+```
+
+
+
 ```{r}
 test<-labs_72[,c('label','valuenum')]
 
