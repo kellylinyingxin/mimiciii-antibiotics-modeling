@@ -16,6 +16,275 @@ output:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, cache=FALSE, comment="  ", prompt = TRUE)
 
+library(plyr)
+library(tidyverse)
+library(mice)
+library(dplyr)
+library(VIM)
+library(ggplot2)
+library(lattice)
+library(Amelia)
+library(caret)
+#https://www.kaggle.com/captcalculator/imputing-missing-data-with-the-mice-package-in-r  #great reference
+
+```
+
+```{r}
+worst<- read.csv("/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/processed/22112018_worstdf_preImp.csv",stringsAsFactors=TRUE, check.names=FALSE)
+
+worst2<- read.csv("/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/processed/22112018_worstdf2_preImp.csv",stringsAsFactors=TRUE, check.names=FALSE)
+worst2$first_admit_age[worst2$first_admit_age>90]<- 90 #
+colnames(worst2)[colnames(worst2)=="('max', 'sodium')"] <- "maxSodium"
+colnames(worst2)[colnames(worst2)=="('min', 'sodium')"] <- "minSodium"
+colnames(worst2)[colnames(worst2)=="('max', 'calcium')"] <- "maxCalcium"
+colnames(worst2)[colnames(worst2)=="('min', 'calcium')"] <- "minCalcium"
+colnames(worst2)[colnames(worst2)=="('max', 'sodium')"] <- "maxSodium"
+colnames(worst2)[colnames(worst2)=="('min', 'sodium')"] <- "minSodium"
+colnames(worst2)[colnames(worst2)=="('max', 'wbc')"] <- "maxWBC"
+colnames(worst2)[colnames(worst2)=="('min', 'wbc')"] <- "minWBC"
+colnames(worst2)[colnames(worst2)=="bands"] <- "bandsNum"
+colnames(worst2)[colnames(worst2)=="pao2/fio2"] <- "pao2fio2Ratio"
+
+
+
+final_pt<- read.csv("/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/raw/csv/01102018_final_pt_df2_v.csv",stringsAsFactors=TRUE, check.names=FALSE)
+
+```
+
+```{r}
+##changing 90 to be max age instead of 300
+worst2$first_admit_age[worst2$first_admit_age>90]<- 90
+worst$first_admit_age[worst$first_admit_age>90]<- 90
+
+
+worst$dopamine<- as.factor(worst$dopamine == 1)
+worst$dobutamine<- as.factor(worst$dobutamine == 1)
+worst$vasopressin<- as.factor(worst$vasopressin == 1)
+worst$epinephrine<- as.factor(worst$epinephrine == 1)
+worst$norepinephrine<- as.factor(worst$norepinephrine == 1)
+worst$phenylephrine<- as.factor(worst$phenylephrine == 1)
+worst$rrt<- as.factor(worst$rrt == 1)
+
+
+worst2$dopamine<- as.factor(worst2$dopamine == 1)
+worst2$dobutamine<- as.factor(worst2$dobutamine == 1)
+worst2$vasopressin<- as.factor(worst2$vasopressin == 1)
+worst2$epinephrine<- as.factor(worst2$epinephrine == 1)
+worst2$norepinephrine<- as.factor(worst2$norepinephrine == 1)
+worst2$phenylephrine<- as.factor(worst2$phenylephrine == 1)
+worst2$rrt<- as.factor(worst2$rrt == 1)
+
+```
+
+
+```{r}
+#worst2_outcomes= merge(worst2,final_pt[c('icustay_id','final_bin')], all.x=TRUE)
+#worst2_outcomes_sid= merge(worst2,final_pt[c('icustay_id','subject_id','final_bin')], all.x=TRUE)
+worst2_sid= merge(worst2,final_pt[c('icustay_id','subject_id', 'final_bin')], all.x=TRUE)
+```
+
+```{r}
+index <- createDataPartition(worst2_sid$subject_id, p=0.70, list=FALSE)
+trainSet <- worst2_sid[ index,]
+testSet <- worst2_sid[-index,]
+
+```
+
+
+```{r}
+# training_outcomes_sid= merge(trainSet,final_pt[c('icustay_id','subject_id','final_bin')], all.x=TRUE)
+
+```
+
+
+```{r}
+summary(trainSet)
+```
+```{r}
+pMiss <- function(x){sum(is.na(x))/length(x)*100}
+
+#pMissingWorst= sapply(worst, pMiss) ##% missing data in associated columns. 
+pMissing_trainSet= sapply(trainSet, pMiss) ##% missing data in associated columns. 
+
+#pMissingWorst[pMissingWorst>30]
+```
+
+```{r}
+pMissing_trainSet[pMissing_trainSet>30]
+```
+
+
+
+
+```{r}
+rowSums(is.na(trainSet)==TRUE)
+```
+
+
+
+```{r}
+md.pattern(trainSet) ##shows the different categories of missingness and the associated n
+```
+
+```{r}
+aggr(trainSet, col=c('navyblue','red'), numbers=TRUE, sortvars=TRUE) #different visualization of missingness, though i dont undderstand it very well
+```
+
+```{r}
+missmap(trainSet[-1], col=c('grey', 'steelblue'), y.cex=0.5, x.cex=0.8)
+
+```
+
+
+
+```{r}
+# ###excluding the values with <50% data filled in. we can come back to the bands later. 
+# exclude <- c('pco2', "('max', 'calcium')", "('min', 'calcium')", 'bilirubin', 'lactate')
+# include<- setdiff(names(worst2),exclude)
+# 
+# worst2_raw<- worst2[include]
+```
+
+
+12/3/18:
+
+in yuan's origional email he stated: # Note, do not use discrete variables to impute other variables at all, as you will likely get error report. The reason is likely due to collinearity in the missing pattern, which you can indeed find among the discrete variables.
+# For exapmle, in the MICE R package, there is a parameter of prediction matrix
+# setting "predM[,c(names(Discrete_Predictors))] <- '0'" works. 
+
+If i'm interpretign this correctly, this means that I should omitt all of my categorical/discrete/factor variables from imputation.
+
+
+```{r}
+#kaggle reference
+##imp.train_raw <- mice(train_raw, m=1, method='cart', printFlag=FALSE)
+
+#,'pco2', "('max', 'calcium')", "('min', 'calcium')", 'bilirubin', 'lactate'
+#,'pco2', "('max', 'calcium')", "('min', 'calcium')", 'bilirubin', 'lactate' )
+
+#names(training_outcomes_sid) <- c("bands", "bands_var")
+
+imp <- mice(trainSet, m=5, pred=quickpred(trainSet, minpuc=0.25,
+                                        exclude=c('ethnicity','final_bin','subject_id',
+                                                  'pco2', "minCalcium",  "maxCalcium", 
+                                                  'bilirubin', 'lactate')),
+                                          seed=99)
+
+#minpuc: A scalar, vector (of size ncol(data)) or matrix (square, of size ncol(data) specifying the minimum threshold(s) for the proportion of usable cases.
+```
+
+```{r}
+summary(imp)
+```
+
+
+
+```{r}
+#save(imp, file='full_worst_imp.txt')
+
+imp$method
+```
+
+```{r}
+complete(imp,1)
+```
+
+```{r}
+complete(imp,2)
+```
+
+
+```{r}
+#writing imputed data to a file
+for (i in 1:5) {
+    worsti = complete(imp,i)
+    fnimp = sprintf('/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/models/imputation/training_worst%d.txt', i)
+    write.table(worsti, file=fnimp)}
+```
+
+
+
+```{r}
+xyplot(imp,final_bin ~ daily_sofa+first_admit_age+rrt,pch=18,cex=1)
+
+#What we would like to see is that the shape of the magenta points (imputed) matches the shape of the blue ones (observed). The matching shape tells us that the imputed values are indeed “plausible values”.
+
+```
+
+
+
+```{r}
+#densityplot(imp[,-1])
+
+densityplot( x=imp , data= ~potassium)
+```
+
+```{r}
+stripplot(imp, pch = 20, cex = 1.2)
+```
+
+```{r}
+#merge(imp,final_pt[c('icustay_id','subject_id','final_bin')], all.x=TRUE)
+```
+```{r}
+
+```
+
+
+need to check the porportion in origional data vs the imputed
+```{r}
+summary((worst2_raw$chloride))
+
+```
+
+
+```{r}
+summary((imp$imp$chloride))
+```
+
+
+```{r}
+summary((worst2_raw$mingcs))
+```
+
+```{r}
+summary(imp$imp$mingcs)
+```
+
+
+```{r}
+summary((trainSet$bands))
+```
+
+
+```{r}
+summary((imp$imp$bands))
+```
+
+
+```{r}
+imp$
+```
+
+
+---------------
+splitting cohort into two sets, training and validation. note if pt has >1 icustay_id, they should both end up in same cohort. ie they will be split at the subject_id level.
+
+
+```{r}
+# index <- createDataPartition(train_transformed$Loan_Status, p=0.75, list=FALSE)
+# trainSet <- train_transformed[ index,]
+# testSet <- train_transformed[-index,]
+
+
+
+index <- createDataPartition(worst2_outcomes_sid$subject_id, p=0.70, list=FALSE)
+#trainSet <- worst2_outcomes[ index,]
+#testSet <- worst2_outcomes[-index,]
+
+```
+
+```{r}
 library(car)
 library(aplore3)
 library(readxl)
@@ -36,757 +305,87 @@ library(psych)
 library(plyr)
 library(reshape2)
 library(tidyverse)
-
 library(tableone)
 library(evaluate)
 library(LogisticDx)
-options(width = 100)
-
-```
-
-# Instructions
-
-* Exam will is take-home, due on Wednesday 12/6 11:59pm
-* You may use your notes, the book, and the internet
-* However, this is **not a group project** - please work independently and do not consult or discuss the exam problems with others
-* If you have a question about the exam, please email me directly. 
-* If something needs to be clarified as a result of one of your questions, I will post the clarification on Canvas
-* This is an exam, not a homework - I expect the writing and coding to be at a higher level than on homeworks, e.g. clean and efficient R code, proper organization of your answers, carefully and concisely worded answers and explanations, etc. 
-* Simply providing R code and output will not be sufficient, you will not get full credit
-* Please explain and justify your steps in English, not just R code or comments 
-* Quality of your writing (e.g. complete sentences, well thought out paragraph structure, etc.) will be a factor in your grade 
-* You should have received a link for course evaluations - please fill it out
-
-
-Good luck!!!
-
-
-# Question 1 [40 pts]. 
-
-Use `tsdata.csv` file. Variable description is in `tsdoc2.csv`. 
-
-
-**Dataset:** In cancer, overall survival (OS) is the primary outcome of interest, and is usually measured as time from diagnosis or from randomization (if it is a clinical trial) to death from any cause.  In better-prognosis types of cancer, it may not be feasible to use OS as the primary outcome measure because we may need to wait as long as 15-20 years (for example, in ER+ breast cancer) to observe the event of interest. Generally, we'd like to know whether the treatment works sooner than that. 
-
-The mechanism of action for most cancer therapies is by shrinking (or stabilizing in some cases) the [tumor](https://www.youtube.com/watch?v=2ImWOuB7YNk) growth. If a treatment works, we can usually see a change in tumor size within a few weeks or months.  In most types of cancer, tumor size changes are a biomarker of the disease, and are often used as a "surrogate endpoint" instead of overall survival in cancer studies. 
-
-Tumor size in solid tumors (i.e. not blood cancers like leukemia or lymphoma) is measured using the RECIST v.1.1 (2011) criteria (see [here](https://imaging.cancer.gov/clinical_trials/imaging_response_criteria.htm) and [here](https://ctep.cancer.gov/protocoldevelopment/docs/recist_guideline.pdf) for more information on RECIST criteria and imaging in cancer).  
-
-**Variables:** Here is a brief description of the variables in the `tsdata.csv` data set.  
-
-  + ecog - (0 - fully active; 1 - restricted but ambulatory; 2 - ambulatory but unable to carry out work; ... 5 - dead)
-  + stage	- Disease stage (1 - earliest; 4 - latest)
-  + female - Gender (M and F)
-  + age	- Patient's age centered at 65 (i.e., age - 65)
-  + trt	- Treatment group (Ctrl and Trt)
-  + ts0	- Tumor size (mm) at baseline (time = 0)
-  + ts8	- Tumor size (mm) after 8 weeks (time = 8wks)
-
-You can see more about what ECOG status is here: http://ecog-acrin.org/resources/ecog-performance-status
-
-**Research goals:** In this question, we'll be examining tumor size changes from baseline to 8 weeks post-randomization using a mock clinical trial of a new chemotherapy regimen (treatment) vs. the standard of care regimen (control). The data are provided in the `tsdata.csv` data set.
-
-The ultimate goal is to analyze the data in order to identify which of the clinical and demographic variables (all of which are measured at baseline) affect tumor growth during the first 8 weeks after treatment initiation.  Your answer for this problem should include at least the following components:
-
-  + selecting the appropriate type of regression model 
-  + selecting an appropriate metric for the outcome variable $Y$,  which reflects tumor size change
-  + model building 
-  + model diagnostics 
-  + sensitivity analyses 
-  + interpretation of the results
-
-
-#### (a) [2 points] What type of a regression model should we use to analyze these data? Explain your answer. 
-```{r}
-tsdoc2 <- read_csv("/Users/geickelb1/Desktop/epibiostats/Final/tsdoc2.csv")
-tsdata<- read_csv("/Users/geickelb1/Desktop/epibiostats/Final/tsdata.csv")
-head(tsdata, 5)
-```
-
-In this analysis, our goal is to assess the outcome of tumor size changes from baseline to 8 weeks based upon which treatment arm the subjects were placed in (the main regressor), while controling for any additional clinical and demographic regressors as needed. In regression analysis our outcome variable dictates which type of regression model most appropriate, and since our outcome is continuous in this case, I believe multivariate linear regression is the model we should start with to analyze these data. 
-
-#### (b) [6 points] There are various ways in which we can look at the outcome variable of tumor size changes from baseline (`ts0`) to 8-weeks (`ts8`). We can consider absolute or relative change, an we could transform the outcome variable if necessary. 
-
-Investigate the various possibilities for the outcome variable representing tumor size change, and select the appropriate outcome variable. You will be using this outcome variable for the rest of the analyses in this Question.  Justify your choice and explain the steps, considerations, and decisions for your selection. 
-
-Note: Make sure that larger values of your outcome variable $Y$ represent tumor growth (e.g. so that `Y = ts8 - ts0 > 0` if tumor increased in size).
-
-
-```{r}
-tsdata$deltaSize <- tsdata$ts8 - tsdata$ts0 #note this is final size - initial size, so if the tumor shrinks the value will be negative.
-tsdata$logdeltaSize<- log2(tsdata$deltaSize)
-tsdata$folddelta <- (tsdata$deltaSize/tsdata$ts0)
-tsdata$reldelta <-  (tsdata$ts8/tsdata$ts0)
-tsdata$logreldelta <- log2(tsdata$reldelta)
-tsdata$logfolddelta<- log2(tsdata$folddelta)
-
-hist(tsdata$logdeltaSize, breaks= 25)
-hist(tsdata$deltaSize, breaks= 25)
-hist(tsdata$reldelta, breaks= 25)
-hist(tsdata$folddelta, breaks= 25)
-hist(tsdata$logreldelta, breaks= 25)
-hist(tsdata$logfolddelta, breaks= 25)
-
-qqnorm(tsdata$logdeltaSize)
-qqnorm(tsdata$deltaSize)
-qqnorm(tsdata$reldelta)
-qqnorm(tsdata$folddelta)
-qqnorm(tsdata$logreldelta)
-qqnorm(tsdata$logfolddelta)
-
-
-```
-
-There are numerous ways we can represent the change in tumor size for our outcome variable. For change in tumor volume between t8 and t0, which i will refer to as `deltaSize`, a relative change scale seems most appropriate because a larger tumor will have to shrink more to be eradicated, but the gross size decrease is less important than either the fold size change or the % reduction of the tumor. Thus either a fold change or % reduction scale seems most appropriate. 
-
-One of the assumptions that needs to hold true for linear regression to be appropriate is that the outcome variable needs to be normally distirubted. When I plotted the following 5 variables : `deltaSize`, `reldelta`, `folddelta`, `logreldelta`, `logfolddelta`, It appears to me that the log trasformations are the only variables that appear normally distibuted based upon the straightness of the qq plots and the distirbution in the histograms. 
-
-I settled on the following outcome variable: $logreldelta= log_2(\frac{ts8}{ts0})$. I chose this because it is normally distributed, describes the log transformed ratio of tumorsize at week8 over initial tumor size  (where prior to transformation the 0= undetected,<1= tumor size reduction, 1= no change, >1= tumor growth ). I chose to use log base 2 instead of log base e because it makes more biologic sense due to the way cells replicate. 
-
-
-
-#### (c) [6 points] Explore the realtionship between the outcome variable that you chose in (b) and each of the predictors. Use any graphical or statistical techniques that you find helpful, and explain why you use each one of them, and what does it tell you.  
-
-```{r}
-#data management 
-tsdata$iecog<- as.factor(tsdata$ecog ==2) #making ecog into a factor variable where 1= '0/1' and 2= 2. 
-tsdata$istage<- as.factor(tsdata$stage == 3) #since stage only has 2 different values I making stage into a factor variable where 2=1 and 3=2.
-tsdata$itrt<- as.factor(tsdata$trt == 'Trt')
-tsdata$ifemale <- as.factor(tsdata$female =='F')
-tsdata$age2<- tsdata$age ^2
-tsdata$age3<- tsdata$age+65
-table(tsdata$stage)
-
-ggpairs(tsdata[,c('logreldelta','iecog', 'istage', 'ifemale','age', 'age2','itrt' )])
-
 ```
 
 ```{r}
-plot(logreldelta~age, data=tsdata)
-plot(logreldelta~age2, data=tsdata)
-plot(deltaSize ~age, data= tsdata)
-ggplot(data=tsdata, aes(x=age3, y=logdeltaSize))+ geom_point() + geom_abline(intercept= -1.45805, slope=0.08036)
-
-tsdata$iage3 <- cut(tsdata$age3, c(55, 60, 65, 70, 75),include.lowest = TRUE)
-tsdata$ideltaSize <- cut(tsdata$deltaSize, c(-125, -3, 3, 1200))
-
-with(tsdata, table( ideltaSize, iage3))
-
-```
-
-Using GGpairs, i made a plot matrix that visually shows histograms/ box-wisker plots for continuous vs categorical varaibles, 2x2 bargraphs for categorical vs categorical varaibles, and scatterplots for continuous vs continuous variables. These are useful in assessing the distribution of variables and how variables are correlated to one another. The biggest things I'm looking for in this are that the continuous regressors are linearly related to my outcome, there are no striking covariate correlations (colinear variables), and that my categorical variables are distributed enough to have enough power for analysis. 
-
-Many of the multicategorical variables described in the data dictionary are only present at 2 levels in the real dataset, so I coded these as binomial factors. For a linear model to be most effective, the continuous regressors present in the model should be linearly correlated with the outcome variable. In this model, the only continuous variable present is `age` and $age^2$.
-
-$age^2$ is strongly correlated with `logreldelta`, which I found to be interesting because since the `age` is centered at 65, squaring it means that it becomes a mesurement of the absolute deviation from age = 65, where younger and older deviations are treated equally. This doesn't make biologic sense to me, as I would expect that 55-60 year old patients would have more favorable outcomes compared to patients 70-75 years old, so I further investigated the variable. I noticed that when I cut the `age` values into groups 55-60, 60-65, 65-70, and 70-75 and `deltaSize` values of -125 to -3, -3 to 3, and 3 to 1200  (essentially three groups: tumor shirnks, tumor stays +/- the same, tumor grows), I noticed that the age groups centered around (the 60-65 and 65-70 groups) seemed to fair much better than the 55-6 or 70-75 groups. The two groups around 65 had 14/16 patients with tumors that shrunk, 44/59 patients that had +/- no tumor shrinkage, and only 43/125 of the patients that had significant tumor growth. 
-
-I don't know what to make of this biologically, but it should be noted that if $age^2$ becomes a significant variable in my model, which it looks like it may, than that means that if two patients have all of the same information except one is 55 and one is 65, than the 55 year old will be predicted to have a lower reduction, or possibly even higher tumor growth, than the 65 year old. 
-
-
-I ended up deciding to include the $age^2$ higher order term because the first order term appeared to have a quadratic output when plotted vs `logreldelta` and the $age^2$ term does fit the data well and has a high correlation with `logreldelta`. I also chose to include `age` in addition to $age^2$ since I wanted to account for both the lower and higher order term for `age`. 
-
-
-#### (d) [20 points] Fit a model that predicts the outcome variable that you selected in (b), using model building approaches we discussed in class. Consider nonlinear terms and interactions. Perform model diagnostics and evaluate model fit. Explain the steps you undertook and the decisions you made in your model selection. 
-
-
-My approach to model construction will be to perform forward selection on the single order terms for the outcome: `logreldelta` and the following regressors: `itrt` + `istage`+ `iecog` + `ifemale`+ `age^2`. Once the first order model has been established I will perform forward selection on interaction terms, where the selected first order model will be my starting point. 
-
-#####model selection
-```{r}
-
-fit0<- lm(logreldelta~ 1, data=tsdata)
-fitAll<- lm(logreldelta~  female + iecog+ istage+ age+ age2+ itrt, data=tsdata)
-
-f.lower<- ~1
-f.upper <- ~ female + iecog+ istage+ itrt + age2 +age
-f.stepF <-step(fit0, scope = list(lower=f.lower, upper=f.upper), direction='forward')
+library(miceadds)
 ```
 
 
- 
 ```{r}
-f.upper2<- update(f.upper, ~(.)^2)
-fitFirstOrder<- lm(logreldelta~  istage+ age+ age2+ itrt, data=tsdata)
-f.stepINT<-step(fitFirstOrder, scope= f.upper2, direction='forward', trace=0)
-compareCoefs(f.stepF, f.stepINT)
+# #imp[index,]
+# imp$imp$
+# 
+# subset_datlist(imp, subset=TRUE, select=NULL, expr_subset=NULL,
+#         index=index, toclass="datlist")
+```
+```{r}
+#training model off complete1
 
+modelFit1 <- glm(final_bin~., family=binomial, data=complete(imp,1))#, data=data))
+summary(modelFit1)
+```
+
+```{r}
+summary(modelFit1)$coef %>% printCoefmat()
+```
+
+
+```{r}
+Anova(modelFit1)
 ```
 
 
 
 ```{r}
-fit.selected<- lm(logreldelta~ age+ age2+ itrt + istage + istage:itrt+ age2:itrt + istage:age,   data=tsdata)
-summary(fit.selected)
-```
 
+#training a model
 
+# tempData2 <- mice(data,m=50,seed=245435)
+# modelFit2 <- with(tempData2,lm(Temp~ Ozone+Solar.R+Wind))
+# summary(pool(modelFit2))
 
-#####diagnostics
-```{r}
+##logistic regression
+#model <- glm(imyopia ~., family=binomial, data=data)
 
-residualPlots(fit.selected, type='rstandard')
-
-#bonferonni residual test
-outlierTest(fit.selected)
-
-#normality- QQ plots- Chi-squared vs normal distibution
-qqPlot(fit.selected, id.n=10)
-shapiro.test(residuals(fit.selected)) #H_0 is the normal distibution, sometimes this is too sensitive as a single outlier can make it reject the null hypothesis
-
-#constant variance
-ncvTest(fit.selected)
-
-#high leverage/influence observations
-influenceIndexPlot(fit.selected, id.n=5, vars= 'hat')
-influenceIndexPlot(fit.selected, id.n=5, vars= c('cook', 'studentized', 'bonf')) # 2/sqrt(n)= . how much the slope is affected by each of the datapoints. 
-
-influencePlot(fit.selected)
-
-
-```
-
-######constant variance:
-In the Rstandard residuals plot, we see a fairly constant distribution, suggesting that our variance is  constant (homoscedastic).The normal Q-Q plot is linear between theroretical quartiles, however data points 2 and 5 appear to be the only ones that deviate from linearity in this plot. When we test with the non-constant variance test, it suggests we can not reject the null hypothesis of constant variance. 
-
-######linear assumption:
-When looking at the curve fit on residual vs regressor plots, and the Tukey tests, we see that both `age` and $age^2$ appear to be linear.
-
-######normality:
-The QQ plot overall looks linear, with only a few outliers on the beginning and end of the plot (points 2 and 5). The Bonferonni outlier tests for these points was significant, and paired the high leverage of point 2, and their high residual values, I will consider both of these to be outliers. My next step will be to remove these datapoints and perform diagnostics again.
-
-
-```{r}
-tsdata2<- tsdata[-5,]
-tsdata2<-tsdata2[-2,]
-
-#tsdata2 is now removed of outliers, redo model diagnostics
-fit.selected2<- lm(logreldelta~ age+ age2+ itrt + istage + istage:itrt+ age2:itrt + istage:age, data=tsdata2)
-summary(fit.selected2)
-
-```
-#####model diagnostics part-2
-
-```{r}
-residualPlots(fit.selected2, type='rstandard')
-
-#bonferonni residual test
-outlierTest(fit.selected2)
-
-#normality- QQ plots- Chi-squared vs normal distibution
-qqPlot(fit.selected2, id.n=10)
-shapiro.test(residuals(fit.selected2)) #H_0 is the normal distibution, sometimes this is too sensitive as a single outlier can make it reject the null hypothesis
-
-#constant variance
-ncvTest(fit.selected2)
-
-#high leverage/influence observations
-influenceIndexPlot(fit.selected2, id.n=5, vars= 'hat')
-influenceIndexPlot(fit.selected2, id.n=5, vars= c('cook', 'studentized', 'bonf')) 
-dfbetaPlots(fit.selected2, id.n=5)
-influencePlot(fit.selected2)
-
-```
-```{r}
-#thresholds
-n= 198 #patients observed
-k= 7 #regressors
-leverage<- ((2*k)+2)/n
-cooks<- 4/n
-dffits<- 2*sqrt(k/n)
-dfbeta<- 2/sqrt(n)
-```
-
-######constant variance:
-In the Rstandard residuals plot, we again see a fairly constant distribution, suggesting that our variance is  constant (homoscedastic).The normal Q-Q plot is linear between theroretical quartiles and the non-constant variance test suggests we can not reject the null hypothesis of constant variance. 
-
-######linear assumption:
-When looking at the curve fit on residual vs regressor plots, and the Tukey tests, we see that both `age` and $age^2$ appear to be linear.
-
-######normality:
-The QQ plot overall looks linear and the Wilks test was non-significant,suggesting we can't reject null hypothesis of normal distribution. 
-
-
-######leverage:
-The suggested cutoff value for high leverage points is $(2k + 2)/n$ or approx 0.08. We see that there are about 11 points that exceed this approximate cutoff on the hat vs index plot. These points have the potential to be high leverage points which should be noted. 
-
-######outlier:
-The bonferoni plot vs index plot shows no datapoints even close to be considered outliers after removing points 2 and 5. 
-
-######influence:
-The suggested cutoff for cook distance is $4/n$ which is approx 0.02.On the cooks distance vs index plot, approximately 13 or so of our 198 datapoints pass this threshold, however not by very much(highest is around 0.04). The approximate value for the dfbetas plot is $\frac{2}{\sqrt(n)}$ which is approximately 0.14, and the only parameters that appear to have points that pass this threshold are the interaction between `treatment:stage` and `stage`. Taken together,I will not be removing any further datapoints due to influence or leverage since there are a number of points passing the leverage threshold on the cooks distance vs index and hat values vs index. Furthermore none of these points are passing the approximate thresholds by very much, and  they are all passing the thresholds at approximately the same values. 
-
-
-
-
-#### (e) [2 points] Write down the equation for your final model using general notation with $\beta$'s, as well as using the actual `\betahat$ estimates from your final model. 
-
-
-
-the two equations for my final models are:
-
-1:$logreldelta \sim \beta_0 + \beta_1 (age^2) + \beta_2(itrt) + \beta_3(istage)+ \beta_4(age) + \beta_5(istage:itrt) + \beta_6(age^2:itrt) + \beta_7(age:istage)$
-
-2:$logreldelta \sim -0.068+ 0.030 (age^2) + -0.263(itrt) + 0.633(istage) + 0.017(age) -0.375(istage:itrt) + -3.09*10^{-5}(age^2:itrt) + 0.003 (age:istage)$
-
-
-
-#### (f) [2 points] Based on your final model, what is the expected tumor size (in mm) at 8 weeks, for a 55-year old female patient with ECOG=0/1 and stage 2 disease, and baseline tumor size 100mm, if they were treated vs. not treated?  Hint: carefully check the variable description table. 
-
-```{r}
-
-fit.selected2.test<- lm(logreldelta~ age+ age2+ itrt + istage + istage:itrt+ age2:itrt + istage:age, data=tsdata2)
-summary(fit.selected2)
-
-
-
-newdat1<- data.frame(age=c(-10),age2=c((-10)^2), istage=c('FALSE'), itrt=c('FALSE')  )
-logreldelta.pred<- predict(fit.selected2.test, newdata=newdat1, interval="prediction") #this is the log2(ts8/ts), to get the ts8 value, i've got to take 2^(logreldelta.pred) *t0. 
-
-logreldelta.pred.untreated<-(2^logreldelta.pred)*100; logreldelta.pred.untreated
-
-
-newdat2<- data.frame(age=c(-10),age2=c((-10)^2), istage=c('FALSE'), itrt=c('TRUE')  )
-logreldelta.pred<- predict(fit.selected2.test, newdata=newdat2, interval="prediction") #this is the log2(ts8/ts), to get the ts8 value, i've got to take 2^(logreldelta.pred) *t0. 
-logreldelta.pred.treated<-(2^logreldelta.pred)*100; logreldelta.pred.treated
-
-newdat3<- data.frame(age=c(-5),age2=c((-5)^2), istage=c('FALSE'), itrt=c('FALSE')  )
-logreldelta.pred<- predict(fit.selected2.test, newdata=newdat3, interval="prediction") #this is the log2(ts8/ts), to get the ts8 value, i've got to take 2^(logreldelta.pred) *t0. 
-
-logreldelta.pred.untreated<-(2^logreldelta.pred)*100; logreldelta.pred.untreated
-
-
-newdat4<- data.frame(age=c(-5),age2=c((-5)^2), istage=c('FALSE'), itrt=c('TRUE')  )
-logreldelta.pred<- predict(fit.selected2.test, newdata=newdat4, interval="prediction") #this is the log2(ts8/ts), to get the ts8 value, i've got to take 2^(logreldelta.pred) *t0. 
-logreldelta.pred.treated<-(2^logreldelta.pred)*100; logreldelta.pred.treated
-
-```
-
-My model predicts that after 8 weeks the tumor will be 655.23mm (225.08mm to 1907.45mm at 95% CI) and 544.82mm (184.87mm to 1605.57mm at 95% CI) for untreated and treated respectively. These predictions show that in my model, the absolute deviation from age 65 is a huge part of the prediction for tumor size with and without treatment. To demonstrate this, I reperformed the calculations on the same patients if they were 60 and the predicted tumor sizes are 149.94 and 124.88 respectively for untreated and treated respectively. This seems counter intuitive and would be a great time to consult with an expert in the field to see if this makes biologic sense. 
-
-#### (g) [2 points] What is an interaction? Based on your final model, if you had any interactions, write the regression equations in each group involved in the interaction. If you don't have any interactions in your final model, pretend that you have an `age:trt` interaction, and write the equations in each treatment group using `\beta` notation. 
-
-lm(logreldelta~ age+ age2+ itrt + istage + istage:itrt+ age2:itrt + istage:age, data=tsdata2)
-
-
-
-$$\begin{array}{} 
-E(Y|itrt=i,istage=j)=\beta_0 +\beta_1age^2 + \beta_2itrt_2 +\beta_3istage_2 +\\
-\beta_4age + \beta_5istage_2itrt_2 + \beta_6age^2{istage_2} +\beta_7ageistage_2 \\
-therefore: \mu_{ij}:\\
-\mu_{11} = E(Y|itrt=1,istage=1) = \beta_0 +\beta_1age^2 + \beta_4age   \\
-\mu_{12} = E(Y|itrt=1,istage=2) = \beta_0 +\beta_1age^2 + \beta_4age + \beta_3istage_2 +\beta_6age^2{istage_2} \\
-\mu_{21} = E(Y|itrt=2,istage=1) = \beta_0 +\beta_1age^2 + \beta_4age  +  \beta_2itrt_2 \\ 
-\mu_{22} = E(Y|itrt=2,istage=2) = \beta_0 +\beta_1age^2 + \beta_2itrt_2 +\beta_3istage_2 + \\
-\beta_4age + \beta_5istage_2itrt_2 + \beta_6age^2{istage_2} +\beta_7ageistage_2\\ 
-\end{array}$$
-
-
-
-# Question 2 [44 points]. 
-
-Use `fram50.csv` data set.  Variable description is in `framvars.csv`.
-
-**Dataset:** The Framingham Heart Study is a long term prospective study of the etiology of cardiovascular disease among a population of free living subjects in the community of Framingham, Massachusetts. The Framingham Heart Study was a landmark study in epidemiology in that it was the first prospective study of cardiovascular disease and identified the concept of risk factors and their joint effects. The study began in 1948 and 5,209 subjects were initially enrolled in the study. Participants have been examined biennially since the inception of the study and all subjects are continuously followed through regular surveillance for cardiovascular outcomes. Clinic examination data has included cardiovascular disease risk factors and markers of disease such as blood pressure, blood chemistry, lung function, smoking history, health behaviors, ECG tracings, Echocardiography, and medication use. Through regular surveillance of area hospitals, participant contact, and death certificates, the Framingham Heart Study reviews and adjudicates events for the occurrence of Angina Pectoris, Myocardial Infarction, Heart Failure, and Cerebrovascular disease.
-
-The dataset we will use in this question is a subset of the data collected as part of the Framingham study and includes laboratory, clinic, questionnaire, and adjudicated event data on 4,434 participants, age 40 or older, who have not had a stroke prior to their baseline evaluation. Each participant was followed for a total of 24 years for the outcome of the following events: Angina Pectoris, Myocardial Infarction, Atherothrombotic Infarction or Cerebral Hemorrhage (Stroke) or death.  In this quesiton, we will focus on stroke. 
-
-You can learn more about The Framingham Study on their website: https://www.framinghamheartstudy.org/
-
-**Baseline evaluation variables** are described that we will consider in this analysis are in the file `framvars.csv`.
-
-**Outcome variable** is `stroke`. 
-
-
-
-#### (a) [30 points] Use purposeful model selection strategy and perform model diagnostics to come up with a model that predicts stroke incidence. Describe the process and your decisions at every step. When you select the final model, describe the findings.
-
-```{r}
-fram40 <- read_csv("/Users/geickelb1/Desktop/epibiostats/Final/fram40.csv")
-framvars <- read_csv("/Users/geickelb1/Desktop/epibiostats/Final/framvars.csv")
-
-#head(fram40)
-fram40$idiabetes <- as.factor(x=fram40$diabetes == 1)
-fram40$icursmoke <- as.factor(x=fram40$cursmoke==1)
-fram40$ibpmeds <- as.factor(x=fram40$bpmeds==1)
-fram40$iprevchd <- as.factor(x=fram40$prevchd ==1)
-fram40$iprevap <- as.factor(x=fram40$prevap==1)
-fram40$iprevmi <- as.factor(x=fram40$prevmi==1)
-fram40$iprevhyp <- as.factor(x=fram40$prevhyp==1)
-
-
-table(fram40$prevchd)
-```
-Before model selection begins, I investigated my data and coded the categorical variables into factors and named them with an i infront of the origional variable. 
-
-
-
-#####step 1
-```{r}
-
-head(fram40)
-varList<- c('isex', 'totchol', 'age', 'sysbp', 'diabp', 'icursmoke', 'bmi', 'idiabetes','ibpmeds', 'heartrte','glucose','ieduc','iprevchd', 'iprevap', 'iprevmi', 'iprevhyp')
-
-tab1<- CreateTableOne(vars=varList, strata= "stroke", data= fram40)
-print(tab1, showAllLevels = TRUE, printToggle= FALSE) %>% kable
-
-
-```
-
-Step one of purposeful model selection involves performing univariate analysis with either contingency tables, t-tests, or single variate logistic regression. In this step, we are looking to identify variables that reach a more relaxed significance threshold of 0.25 to carry on to the next step of model selection. 
-
-The output of CreateTableOne() performs either a $\chi^2$ or a t-test for a set of variables compared to strata = `stroke`. In this case our `stroke` variable is coded so that 0 = no and 1 = yes. 
-
-The variables that meet the significance threshold at p<0.05: `age`, `sysbp`, `diabp`, `bmi`, `idiabetes`, `ibpmeds`, `glucose`, `ieduc`, `iprevchd`, `iprevmi`, `iprevap` and `iprevhyp`
-The variables that meet the significance threshold at p<0.25: `isex` and` heartrte`
-
-Two variables did not make the significance threshold cut in step1: `totchol` and `icursmoke`
-
-Furthermore, when looking at the contingency table for the variables, none of the variables appear to have any levels with 0 values or anything else that raises concern right away.
-
-
-#####step 2
-
-In step two of purposeful model selection, I will fit a multiple variable model with candidate variables from step 1.
-
-```{r}
-model1<- glm(stroke~ age+ sysbp + diabp +
-               bmi + idiabetes + ibpmeds + 
-               glucose + ieduc + iprevchd + 
-               iprevmi + iprevhyp+ iprevap,
-             family= binomial, data=fram40)
-summary(model1)
-```
-
-
-I can assess the significance of each predictor in the model above using the p-value of it's wald statistic. The variables found to be significant from the wald test at P<0.05 are: `age`, `diabp`, `diabetes` and `prevhyp`. Since the multiple level categorical variable ieduc is not significant at any level, an Anova() does not need to be performed. Next, I will refit the model using only these 4 variables and use an LRT with the anova() function to compare the two models. If the result is not statistically significant than I will proceed to step 3.
-
-```{r}
-model2<- glm(stroke~ age+ diabp + idiabetes+ iprevhyp, family= binomial, data=fram40)
-summary(model2)
-
-anova(model1, model2)
-
-G<- model2$deviance- model1$deviance
-1-pchisq(G, 2) #manual calculation of p value between deviance(model2)-deviance (model1), with df=2 (# of parameters different between models)
-```
-Using the manual calculation of the p value of the anova(), I found the P value to be = 0.055, which is boarderline significant. Given this, my next course of action is to remove a smaller subset of variables from model 1 at a higher p threshold (p<0.2). Since the only additional variable to meet this new threshold is`bpmeds`, I will now repeat step 2 with this term included.
-
-```{r}
-model2.2<- glm(stroke~ age+ diabp + idiabetes+ iprevhyp +ibpmeds, family= binomial, data=fram40)
-summary(model2.2)
-
-anova(model1, model2.2)
-
-G<- model2.2$deviance- model1$deviance
-1-pchisq(G, 2)
-```
-Although the newly included `bpmeds` regressor is not significant by the wald test, the inclusion of this variable now makes the LRT test between model2.2 and model1 significant, so I will include it in my model going forward.
-
-my model at the end of step 2 is $g(stroke) \sim \beta_0 + \beta_1(age) + \beta_2(diabp) + \beta_3(diabetes) + \beta_4(prevhyp) + \beta_5(bpmeds)$
-
-
-#####step 3
-
-In step 3, I am checking the degree to which removing the regressors in model 2 affects the remaining regressors. As a rule of thumb, if removing the regressors in model 2 changes the remainig regressors by >20%, then one or more of the removed variables are important and should be reconsidered.
-
-```{r}
-betaComp<- compareCoefs(model1, model2.2, se=FALSE)
-betaAdj<- betaComp[,1]
-betaUnadj<- betaComp[,2]
-deltaBeta<- (betaAdj- betaUnadj)/betaAdj *100
-deltaBeta
-
-model3<- model2.2
-```
-When comparing the $\beta$ parameters between models 1 and 2.2, It appears that diabetes is ~17% different between the models. Although this does not cross the preestablished threshold of >20%, it is close and therefore some or all of the variables of the excluded variables are likely somewhat important in they provide a needed adjustment of the effect of the variables in the model. I'm going to hold firm on my threshold of >20%, and since none of my variables change more than 20% between model1 and model2.2, I'm going to proceed to step 4.
-
-my model at the end of step 3 is $g(stroke) \sim \beta_0 + \beta_1(age) + \beta_2(diabp) + \beta_3(idiabetesTRUE) + \beta_4(iprevhypTRUE) + \beta_5(ibpmedsTRUE)$, which is the same as 2.2. 
-
-
-#####step 4
-
-In step 4 I will construct a preliminary main effects model by singly adding in the previously excluded variables into model3 and will asssess the new model with either a Wald test (for continuous) of LRT (for categorical) regressors.  
-```{r}
-summary(update(model3, ~. + sysbp))$coef[7,]
-summary(update(model3, ~. + bmi))$coef[7,]
-summary(update(model3, ~. + glucose))$coef[7,]
-summary(update(model3, ~. + iprevchd))$coef[7,]
-summary(update(model3, ~. + iprevmi))$coef[7,]
-summary(update(model3, ~. + iprevap))$coef[7,]
-Anova(update(model3, ~. + ieduc))
-
-model4<- model3
-```
-None of the previously excluded variables appeared significant when I added them all back into the model one-by-one. This checks that none of the excluded variables are significant in the presence of other variables. 
-
-my preliminary main effects model, or model 4, is:  $g(stroke) \sim \beta_0 + \beta_1(age) + \beta_2(diabp) + \beta_3(idiabetesTRUE) + \beta_4(iprevhypTRUE) + \beta_5(ibpmedsTRUE)$, which is the same as 2.2 and 3. 
-
-#####step 5
-
-In step5 of purposeful model selection I will assess the linearity assumption for each continuous variable in model4.
-```{r}
-logit <- function(pi) log(pi/(1-pi))
-
-
-yhatage <- loess(stroke ~ age, data=fram40) %>% predict
-yhatdiabp <- loess(stroke ~ diabp, data=fram40) %>% predict
-
-
-qplot(fram40$age, logit(yhatage)) +  geom_line() + theme_bw(base_size = 20)
-ggplot(fram40, aes(age, stroke)) +
-  geom_point() +
-  geom_smooth() +
-  theme_bw()
-   #`geom_smooth()` using method = 'loess'
-
-
-qplot(fram40$diabp, logit(yhatdiabp)) + geom_line() + theme_bw()
-ggplot(fram40, aes(diabp, stroke)) +
-  geom_point() +
-  geom_smooth() +
-  theme_bw()
-
-fram40$idiabp<- cut(fram40$diabp, breaks=c(0, 62.5, 150), include.lowest=TRUE)
-with(fram40, table(idiabp, exclude=NULL))
-
-model5 <- model4
-
-```
-Age appears to satisfy the linearity assumption. Diastolic bloodpressure appears to potentially have a higher order trend due to a curve between 45-65 values. Although this appears to possibly violate the linearity assumption, upon further inspection I discovered that only 80/ ~3300 values exist between 45-62.5 and thus could make the smoother more susceptable to overfitting. Since the rest of the `diabp` range appears to be linear, I am not going to transform this variable. For both age and diastolic blood pressure, it makes biologic sense that the odds of having a stroke would be higher as both of those variables increase. 
-
-My model 5 at the end of step 5 is:  $g(stroke) \sim \beta_0 + \beta_1(age) + \beta_2(diabp) + \beta_3(idiabetesTRUE) + \beta_4(iprevhypTRUE) + \beta_5(ibpmedsTRUE)$, which is the same as 2.2, 3 and 4. 
-
-#####step 6
-
-In step 6 of purposeful model selection, I will consider all interaction terms in the model and add those that meet the p<0.05 threshold of significance. 
-
-```{r, echo= FALSE, eval=FALSE}
-summary(update(model5, ~. + age*diabp))
-summary(update(model5, ~. + age*idiabetes))
-summary(update(model5, ~. + age*iprevhyp))
-summary(update(model5, ~. + age*ibpmeds))
-summary(update(model5, ~. + diabp*idiabetes))
-summary(update(model5, ~. + diabp*iprevhyp))
-summary(update(model5, ~. + diabp*ibpmeds))
-summary(update(model5, ~. + idiabetes*iprevhyp))
-summary(update(model5, ~. + idiabetes*ibpmeds))
-summary(update(model5, ~. + iprevhyp*ibpmeds))
-```
-
-
-```{r}
-#summary(model5)
-
-int5 <- attr(terms(update(formula(model5), ~. ^2)), "term.labels")[6:15]
-ints <- NULL
-ints2 <- NULL
-for (i in 1:length(int5)){
-tmp <- update(model5, as.formula(paste("~ . + ", int5[i]))) 
-ints <- rbind(ints, summary(tmp)$coef[-(1:6), ,drop=FALSE])
-ints2 <- rbind(ints2, Anova(tmp)[6,, drop=FALSE])
-}
-intsmat <- ints
-ints <- data.frame(ints)
-names(ints) <- colnames(intsmat)
-ints
-
-
+modelFit2 <- with(imp, glm.mids(final_bin~., family=binomial, data=imp))#, data=data))
+summary(pool(modelFit2), type='mira')
 
 ```
 
 
 ```{r}
-model6<- update(model5, ~. + age*idiabetes)
-anova( model6, model5)
-G<- model5$deviance- model6$deviance
-1-pchisq(G, 2)
-
+library(mice)
+library(miceadds)
+summary.mira(pool(modelFit2))
 ```
-
-
-`age`:`idiabetes` was the only interaction found to be significant at P<0.05. The LRT test between models including this interaction and model 5 was found to be non-significant, suggesting that there is no significant difference between the two models and  I will therefore include the interaction term in my model. 
-
-
-
-
-My model6 at the end of step 6 is:  $g(stroke) \sim \beta_0 + \beta_1(age) + \beta_2(diabp) + \beta_3(idiabetesTRUE) + \beta_4(iprevhypTRUE) + \beta_5(ibpmedsTRUE+ \beta_6 (age:idiabetesTRUE)$
-
-
-
-
-
-#####step 7
-
-Step 7 of purposeful model selection involves running diagnostics on the model assembled in steps 1-6. 
+```{r}
+modelFit2
+```
 
 
 ```{r}
-gof(model6, g = 15)
+# 
+# mod <- list(analyses=vector("list", imp$m))
+# 
+# set.seed(1)
+# for(i in 1:imp$m){
+#   rand <- (1:nrow(worst2_outcomes_sid))*rbinom(nrow(worst2_outcomes_sid),size=1,prob=0.7)
+#   mod$analyses[[i]] <- glm(final_bin ~ ., data=complete(imp, i)[rand,],family=binomial)
+# }
+# 
+# class(mod) <- c("mira", "matrix")
+# pool(mod)
 
 ```
-The HL test is not significant, indicating that the model fit is reasonable.
-
-
-
 
 
 ```{r}
-MEmodel<- model6
-
-dx(MEmodel) %>% head
-
-influenceIndexPlot(MEmodel, id.n=5)
-dfbetaPlots(model6, id.n=5)
-
-fitME.dx <- dx(MEmodel); fitME.dx$id <- 1:nrow(fitME.dx)
-
-ggplot(fitME.dx, aes(id, dChisq)) + 
-  geom_point() + geom_segment(aes(xend = id, yend = 0), color="gray") +
-  geom_text(data=subset(fitME.dx, dChisq>10), aes(label=id), hjust=-.3, vjust=0.8) + 
-  theme_bw(base_size = 20)
-
-ggplot(fitME.dx, aes(id, dDev)) + 
-  geom_point() + 
-  geom_segment(aes(xend = id, yend = 0), color="gray") + 
-  geom_text(data=subset(fitME.dx, dDev>4.5), aes(label=id), hjust=-.3, vjust=0.8) +
-  theme_bw(base_size = 20)
-
-ggplot(fitME.dx, aes(id, dBhat)) + geom_point() + 
-  geom_segment(aes(xend = id, yend = 0), color="gray") + 
-  geom_text(data=subset(fitME.dx, dDev>4.5), aes(label=id), hjust=-.3, vjust=.8) +
-  geom_text(data=subset(fitME.dx, dBhat>0.15), aes(label=id), hjust=-.3, vjust=.8)+
-  theme_bw(base_size = 20)
-
-
-fit1.dx <- dx(MEmodel); fit1.dx$id <- 1:nrow(fit1.dx)
-p1 <- ggplot(fit1.dx, aes(P, h)) + geom_point() + theme_bw()
-p2 <- ggplot(fit1.dx, aes(P, dChisq))+ geom_point() + geom_text(data=subset(fit1.dx, dChisq>10), aes(label=id),hjust=-.3, vjust=.8, col="red") + theme_bw()
-p3 <- ggplot(fit1.dx, aes(P, dDev)) + geom_point() + geom_text(data=subset(fit1.dx, dDev>4.5), aes(label=id), hjust=-.3, vjust=.8, col="red") + theme_bw()
-p4 <- ggplot(fit1.dx, aes(P, dBhat)) + geom_point() +  geom_text(data=subset(fit1.dx, dDev>4.5), aes(label=id), hjust=-.3, vjust=.8, col="red") + geom_text(data=subset(fit1.dx, dBhat>0.15), aes(label=id), hjust=1,vjust=.8, col="blue") + theme_bw()
-grid.arrange(p1, p2, p3, p4, nrow=2)
-
+# nrow(complete(imp, 1)[index, ]) #5446
+# #sum(!duplicated(complete(imp, 1)[index, c('icustay_id')])) #5446
+# #sum(!duplicated(df))
 ```
-
-coariate pattern 1784 appears to be an outlier in the dChisq and dDev plots, suggesting that it may be an outlier or high influence point. I will refit the model without this observation. 
-
-```{r}
-fit1.dx[fit1.dx$id==1784,]
-
-mod7.1784 <- update(model6, data=subset(fram40, !(age==52 & diabp ==74 & idiabetes==FALSE & iprevhyp==FALSE )))
-compareCoefs(model6, mod7.1784, se=FALSE)
-
-coefs <- compareCoefs(model6, mod7.1784, se=FALSE, print=FALSE)
-(coefs[,2] - coefs[,1])/ coefs[,1]*100 %>% round(2)
-```
-The most influential covariate pattern did not seem to affect the coefficient estimates much, since all are less than 5% change. This is not surprising because DFBETA plots didn't identify any seriously influential observations either. Therefore, I will keep model 6 as my final model. 
-
-
-#####final model
-
-My final model at the end of step 7 is:  $g(stroke) \sim \beta_0 + \beta_1(age) + \beta_2(diabp) + \beta_3(idiabetesTRUE) + \beta_4(iprevhypTRUE) + \beta_5(ibpmedsTRUE+ \beta_6 (age:idiabetesTRUE)$
-
-```{r}
-printCoefmat(summary(model6)$coef)
-data.frame(OR=exp(model6$coef), CI= exp(confint.default(model6)))
-
-```
-The odds ratios for my model are presented in the table above. These odds ratios can be interpreted as the the odds of having a stroke for are X higher for the selected group vs the baseline group for categorical variables or for one unit increase in continuous variables. IE: the odds of a person with diabetes are 2.5 to 5800 higher than for a person without diabetes at the 95% confidence interval. The CI window for diabetes OR is extremely high (2.5 to 5800) and is likely due to low cell counts somewhere. The confidence interval on the OR for `ibpmeds` spans <1 and >1 on the 2.5 and 97.5 window, and this is because the regressor is not significant at p<0.05. However, based upon the logic outlined above in purposeful model selection, the regressor is still included in the final model.  
-
-
-#### (b) [14 points] Suppose you were writing an abstract to present your findings at a conference.  Conference abstracts are similar in structure and purpose to regular medical publication abstracts, e.g. like the Adams et al paper in NEJM that we discussed in class. Using the same structure as the abstract in that paper (i.e. Background, Methods, Results, and Conclusions) write the abstract describing your findings based on your analysis. Limit your abstract to 300-350 words (because RStudio doesn't have word count, you can use word count in the compiled .docx document, and adjust accordingly).
-
-
-BACKGROUND
-Stroke is the third leading cause of death in the United States and public health responses aimed at reducing the incidence of stroke hinge upon having a better fundamental understanding of the risk factors associated with strokes. Here we report an subsequent analysis of stroke risk factors based upon the landmark observational prospective Framingham heart Study.
-METHODS
-A subset of 3317 patients followed for a total of 24 years, age 40 or older, who have not had a stroke prior to their baseline evaluation comprised two groups: 324 patients who experienced stroke after their baseline evaluation (stroke group), and 2993 patients who did not experience a stroke through their study follow-up. Clinical parameters were assessed at study enrollment and include: cholesterol, systolic/diastolic blood pressure, smoking status, BMI, diabetes history, heart rate, fasting glucose levels, education level, and history of Angina Pectoralis, coronary heart disease, myocardial infarction, and hypertension. 
-RESULTS
-The odds ratio for the incidence of stroke at 24 years was 120.72 (95% CI, 2.51 to 5797.62) for the diabetes group vs the nondiabetic group, 1.62 ( 95% CI, 1.19 to 2.20)  between the previous hypertension group and no previous hypertension group, 1.07 (95% CI 1.05 to 1.09) for each additional year of age (data fit between 40-70 years of age) and 1.02 (95% CI, 1.01 to 1.03) for each unit increase in diastolic blood pressure (data fit between 48 -142). We also found the odds ratio for the incidence of stroke at 24 years was 1.42 (95%CI, 0.89 to 2.24) for the group on blood pressure medication vs no medication. 
-CONCLUSIONS
-This study demonstrates the long-term effects of diabetes, age, hypertension, and diastolic blood pressure on the odds of having a stroke. The results in this study can used to better target populations at risk of having a stroke with early interventions and preventative measures. (Funded by the Feinberg School of Medicine epibiostats-402 class.)
-
-
-
-
-
-# Question 3 [16 points, 2 each]
-
-**Use R output in `EB402_FA17_Final_Q3_Output.pdf`. **
-
-These data are from a cohort study of men who were followed for 7 years, with coronary heart disease as the outcome of interest. The variables are defined as follows:
-
-* ID - The subject identifier. Each observation has a unique identifier since there is one observation per subject.
-* CHD - A dichotomous outcome variable indicating the presence (coded 1) or absence (coded 0) of coronary heart disease.
-* CAT - A dichotomous predictor variable indicating high (coded 1) or normal (coded 0) catecholamine level.
-* AGE - A continuous variable for age (in years).
-* CHL - A continuous variable for cholesterol.
-* SMK - A dichotomous predictor variable indicating whether the subject ever smoked (coded 1) or never smoked (coded 0).
-* ECG - A dichotomous predictor variable indicating the presence (coded 1) or absence (coded 0) of electrocardiogram abnormality.
-* DBP - A continuous variable for diastolic blood pressure.
-* SBP - A continuous variable for systolic blood pressure.
-* HPT - A dichotomous predictor variable indicating the presence (coded 1) or absence (coded 0) of high blood pressure. HPT is coded 1 if the systolic blood pressure is greater than or equal to 160 or the diastolic blood pressure is greater than or equal to 95.
-
-Please refer to the output file for question 3, and answer the following questions:
-
-#### (a) What is the test statsitic and p-value for the Wald test for smoking?
-
-The Wald test is performed through the summary(glm()) function in R. The Wald statistic for smoking is listed under z value and is = 2.589 and has a p-value = 0.009633. This is comparing the model with only smoking to $H_0 = 0$. 
-
-
-#### (b) What is the test statsitic and p-value for the likelihood ratio test for smoking?
-
-The LRT statistic for smoking is 7.3188 and the p-value = 0.006824. The LRT is comparing the nested model with all of the regressors ($H_1$) to the nested model minus the regressor in question ($H_0$). 
-
-
-#### (c) What is the deviance for the intercept only model?
-The deviance for the intercept only model, or Null deviance in the summary(glm()) output, is 438.56 on 608 degrees of freedom. 
-
-
-#### (d) How many obsrvations are in the data set?
-
-The Null deviance is listed as having n-1 degrees of freedom, so 608+1 = 609 observations. This is confirmed by looking at the dimensions of the evans dataset.
-
-
-#### (e) What is the odds ratio and its confidence interval for smoking? 
-The OR for smoking is found by taking exp(coef(fit1)) and the confidence interval is found by taking exp(confint.default(fit1)). The output for the odds ratio for smoking is 2.20966 (1.21236 to 4.02735 at 95% CI), or those who smoke are at 1.21236 to 4.02735 higher odds for choronary heart disease compared to those who don't smoke at the 95% confidence interval. 
-
-
-#### (f) What is the odds ratio for two individuals who are 5 years apart in age? 
-
-The OR of two subjects 5 years apart is $e^{(5*0.034443)} = 1.187933$, where 0.034443 is the $\beta$ estimate taken from the output. 
-
-
-#### (g) What is the odds ratio and its 95%CI for hypertension (hpt) among men with abnormal catecholamine (cat) levels? with normal catecholamine levels?
-
-
-We are 95% confident that the OR for having hypertension among men with abnormal catecholamine levels is 0.4442 (0.1597 to 1.2356 at 95% CI) compared to med with abnormal catecholamine to not have hypertension. 
-We are 95% confident that the OR for having hypertension among men with normal catecholamine levels is  2.3877 (1.2541 to 4.5461 at 95% CI) compared to med with normal catecholamine to not have hypertension. 
-
-
-
-#### (h) What is the predicted probability of CHD for someone who is:
-  + normal catecholamine
-  + 50 years old
-  + cholesterol 200
-  + normal ecg
-  + non-smoker
-  + has hypertension? 
-
-
-
-The predicted Probability ($\hat\pi$) for a patient given the above conditions is 0.06215 or 6.215%. This was found by plugging in the paramaeters into the model and taking the inverse logit, and was confirmed using the predict function.
-  
-
-```{r}
-
-exp(-6.994250+(1.76724*0) + (0.0344*50) + (0.008439*200) + (0.3581*0) + (0.792841*0) + (0.870359*1) )/(1+ exp(-6.994250+(1.76724*0) + (0.0344*50) + (0.008439*200) + (0.3581*0) + (0.792841*0) + (0.870359*1)))
-
-evans <- read_csv("/Users/geickelb1/Desktop/epibiostats/Final/evans.csv")
-fittest <- glm(chd ~ cat + age + chl + ecg + smk + hpt + cat:hpt, family=binomial, data=evans);
-newdat <- data.frame(cat=0, age=50, chl=200, ecg=0, smk=0, hpt=1);
-predict(fittest, newdata=newdat, type="response")
-```
-
-
-
 
