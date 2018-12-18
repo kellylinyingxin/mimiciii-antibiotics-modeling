@@ -1,7 +1,7 @@
 ---
-title: "EB 402: Final Exam"
+title: "WorstModelDataImputation"
 author: "Garrett Eickelberg"
-date: "Due: Wednesday, Decmeber 6, 2017"
+date: "Due: Wednesday, Decmeber 17, 2018"
 output: 
   word_document:
     highlight: "monochrome"
@@ -83,6 +83,9 @@ worst2$rrt<- as.factor(worst2$rrt == 1)
 worst2_sid= merge(worst2,final_pt[c('icustay_id','subject_id', 'final_bin')], all.x=TRUE)
 ```
 
+---------------
+splitting cohort into two sets, training and validation. note if pt has >1 icustay_id, they should both end up in same cohort. ie they will be split at the subject_id level.
+
 ```{r}
 index <- createDataPartition(worst2_sid$subject_id, p=0.70, list=FALSE)
 trainSet <- worst2_sid[ index,]
@@ -92,8 +95,14 @@ testSet <- worst2_sid[-index,]
 
 
 ```{r}
-# training_outcomes_sid= merge(trainSet,final_pt[c('icustay_id','subject_id','final_bin')], all.x=TRUE)
+rownames(trainSet)<- trainSet$icustay_id
+trainSet$icustay_id<-NULL
+trainSet
+```
 
+
+```{r}
+# training_outcomes_sid= merge(trainSet,final_pt[c('icustay_id','subject_id','final_bin')], all.x=TRUE)
 ```
 
 
@@ -102,18 +111,14 @@ summary(trainSet)
 ```
 ```{r}
 pMiss <- function(x){sum(is.na(x))/length(x)*100}
-
 #pMissingWorst= sapply(worst, pMiss) ##% missing data in associated columns. 
 pMissing_trainSet= sapply(trainSet, pMiss) ##% missing data in associated columns. 
-
 #pMissingWorst[pMissingWorst>30]
 ```
 
 ```{r}
 pMissing_trainSet[pMissing_trainSet>30]
 ```
-
-
 
 
 ```{r}
@@ -154,49 +159,41 @@ in yuan's origional email he stated: # Note, do not use discrete variables to im
 
 If i'm interpretign this correctly, this means that I should omitt all of my categorical/discrete/factor variables from imputation.
 
-
+###NOTE: Graham et al from 2007 concluded that the # of imputations is often much higher than we think we need. Perhapse i should use more than 5?
+Graham, J.W., Olchowski, A.E. & Gilreath, T.D. Prev Sci (2007) 8: 206. https://doi.org/10.1007/s11121-007-0070-9
 ```{r}
 #kaggle reference
 ##imp.train_raw <- mice(train_raw, m=1, method='cart', printFlag=FALSE)
-
-#,'pco2', "('max', 'calcium')", "('min', 'calcium')", 'bilirubin', 'lactate'
-#,'pco2', "('max', 'calcium')", "('min', 'calcium')", 'bilirubin', 'lactate' )
-
 #names(training_outcomes_sid) <- c("bands", "bands_var")
 
-imp <- mice(trainSet, m=5, pred=quickpred(trainSet, minpuc=0.25,
+imp <- mice(trainSet, m=20, pred=quickpred(trainSet, minpuc=0.25,
                                         exclude=c('ethnicity','final_bin','subject_id',
                                                   'pco2', "minCalcium",  "maxCalcium", 
                                                   'bilirubin', 'lactate')),
                                           seed=99)
 
+#####
+
 #minpuc: A scalar, vector (of size ncol(data)) or matrix (square, of size ncol(data) specifying the minimum threshold(s) for the proportion of usable cases.
 ```
 
-```{r}
-summary(imp)
-```
-
-
 
 ```{r}
-#save(imp, file='full_worst_imp.txt')
-
 imp$method
 ```
 
 ```{r}
-complete(imp,1)
+summary(complete(imp,2))
 ```
 
 ```{r}
-complete(imp,2)
+complete(imp,10)
 ```
 
 
 ```{r}
 #writing imputed data to a file
-for (i in 1:5) {
+for (i in 1:20) {
     worsti = complete(imp,i)
     fnimp = sprintf('/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/models/imputation/training_worst%d.txt', i)
     write.table(worsti, file=fnimp)}
@@ -272,13 +269,11 @@ splitting cohort into two sets, training and validation. note if pt has >1 icust
 
 
 ```{r}
+###older code, i have since implimented this in the first few lines.
 # index <- createDataPartition(train_transformed$Loan_Status, p=0.75, list=FALSE)
 # trainSet <- train_transformed[ index,]
 # testSet <- train_transformed[-index,]
-
-
-
-index <- createDataPartition(worst2_outcomes_sid$subject_id, p=0.70, list=FALSE)
+#index <- createDataPartition(worst2_outcomes_sid$subject_id, p=0.70, list=FALSE)
 #trainSet <- worst2_outcomes[ index,]
 #testSet <- worst2_outcomes[-index,]
 
@@ -308,6 +303,7 @@ library(tidyverse)
 library(tableone)
 library(evaluate)
 library(LogisticDx)
+
 ```
 
 ```{r}
@@ -325,7 +321,7 @@ library(miceadds)
 ```{r}
 #training model off complete1
 
-modelFit1 <- glm(final_bin~., family=binomial, data=complete(imp,1))#, data=data))
+modelFit1 <- glm(final_bin~., family=binomial, data=complete(imp,2))#, data=data))
 summary(modelFit1)
 ```
 
@@ -338,54 +334,202 @@ summary(modelFit1)$coef %>% printCoefmat()
 Anova(modelFit1)
 ```
 
+------------------------
+TRAINING A MODEL OFF OF EVERY IMPUTED DATASET
 
 
 ```{r}
 
-#training a model
-
-# tempData2 <- mice(data,m=50,seed=245435)
-# modelFit2 <- with(tempData2,lm(Temp~ Ozone+Solar.R+Wind))
-# summary(pool(modelFit2))
-
-##logistic regression
-#model <- glm(imyopia ~., family=binomial, data=data)
-
-modelFit2 <- with(imp, glm.mids(final_bin~., family=binomial, data=imp))#, data=data))
-summary(pool(modelFit2), type='mira')
-
+pooledFit
 ```
 
 
 ```{r}
-library(mice)
-library(miceadds)
-summary.mira(pool(modelFit2))
-```
-```{r}
-modelFit2
-```
-
-
-```{r}
-# 
-# mod <- list(analyses=vector("list", imp$m))
-# 
-# set.seed(1)
-# for(i in 1:imp$m){
-#   rand <- (1:nrow(worst2_outcomes_sid))*rbinom(nrow(worst2_outcomes_sid),size=1,prob=0.7)
-#   mod$analyses[[i]] <- glm(final_bin ~ ., data=complete(imp, i)[rand,],family=binomial)
-# }
-# 
-# class(mod) <- c("mira", "matrix")
-# pool(mod)
-
+final_bin ~ bandsNum + bilirubin + bun + chloride + creatinine + 
+    daily_sofa + dobutamine + dopamine + epinephrine + first_admit_age + 
+    glucose + heartrate + inr + lactate + norepinephrine + pco2 + 
+    phenylephrine + potassium + ptt + resprate + rrt + temperature + 
+    vasopressin + weight + bicarbonate + diasbp + hemoglobin + 
+    meanartpress + mingcs + pao2fio2Ratio + ph + platelet + spo2 + 
+    sysbp + maxCalcium + maxSodium + maxWBC + minCalcium + minSodium + 
+    minWBC + ethnicity + gender + leukocyte + nitrite + vent_recieved + 
+    subject_id
 ```
 
 
 ```{r}
-# nrow(complete(imp, 1)[index, ]) #5446
-# #sum(!duplicated(complete(imp, 1)[index, c('icustay_id')])) #5446
-# #sum(!duplicated(df))
+
+#training a model based on all imputed data
+
+##making a fit expression, as using final_bin ~. doesn't work. 
+dataset1<- complete(imp,1)
+names1<- colnames(dataset1)[c(-47,-48)]
+fla <- paste("final_bin ~", paste(names1, collapse="+"))
+```
+
+```{r}
+miceFit <- with(data=imp,exp=glm(as.formula(fla),family=binomial(link = 'logit')))
+pooledFit<- pool(miceFit)
+#modelFit2 <- with(imp, glm.mids(final_bin~., family=binomial, data=imp))#, data=data))
+#as.data.frame()
+summary(pooledFit)
+```
+
+
+
+```{r}
+miceFit <- with(data=imp,exp=glm(final_bin ~ bandsNum + bilirubin + bun + chloride + creatinine + 
+    daily_sofa + dobutamine + dopamine + epinephrine + first_admit_age + 
+    glucose + heartrate + inr + lactate + norepinephrine + pco2 + 
+    phenylephrine + potassium + ptt + resprate + rrt + temperature + 
+    vasopressin + weight + bicarbonate + diasbp + hemoglobin + 
+    meanartpress + mingcs + pao2fio2Ratio + ph + platelet + spo2 + 
+    sysbp + maxCalcium + maxSodium + maxWBC + minCalcium + minSodium + 
+    minWBC + ethnicity + gender + leukocyte + nitrite + vent_recieved ,family=binomial(link = 'logit')))
+pooledFit<- pool(miceFit)
+#modelFit2 <- with(imp, glm.mids(final_bin~., family=binomial, data=imp))#, data=data))
+#as.data.frame()
+summary(pooledFit)
+```
+
+```{r}
+
+
+poolSummary<- as.data.frame(summary(pooledFit))
+poolSummary<- summary(pooledFit)
+poolcoef <- summary(pooledFit)
+
+#poolcoef[order(poolcoef[ , 5]), ] 
+```
+
+
+```{r}
+
+#linear scale
+linear<-round(summary(pool(miceFit), conf.int = TRUE), 3)
+linear[order(linear[ , 5]), ] 
+```
+
+
+```{r}
+#log odds scale
+logodds<-round(summary(pool(miceFit), conf.int = TRUE, exponentiate = TRUE), 3)
+logodds[order(logodds[ , 5]), ] 
+logodds[order(logodds[ , 5]), ] 
+```
+
+
+```{r}
+for (i in miceFit$analyses){
+  print(dx(i) %>% head)
+  print(influenceIndexPlot(i, id.n=5, labels=rownames(i$data)))
+}
+
+#gof(miceFit, plotROC=FALSE, g=15)
+```
+
+
+
+```{r}
+i<- miceFit$analyses[[1]]
+print(dx(i) %>% head)
+print(influenceIndexPlot(i, id.n=5, labels=rownames(i)))
+
+fitME.dx <- dx(i); fitME.dx$id <- 1:nrow(fitME.dx)
+
+
+
+ggplot(fitME.dx, aes(id, dChisq)) + 
+  geom_point() + geom_segment(aes(xend = id, yend = 0), color="gray") +
+  geom_text(data=subset(fitME.dx, dChisq>10), aes(label=id), hjust=-.3, vjust=0.8) + 
+  theme_bw(base_size = 20)
+
+
+fit1.dx <- dx(i); fit1.dx$id <- 1:nrow(fit1.dx)
+p1 <- ggplot(fit1.dx, aes(P, h)) + geom_point() + theme_bw()
+p2 <- ggplot(fit1.dx, aes(P, dChisq))+ geom_point() + geom_text(data=subset(fit1.dx, dChisq>10), aes(label=id),hjust=-.3, vjust=.8, col="red") + theme_bw()
+p3 <- ggplot(fit1.dx, aes(P, dDev)) + geom_point() + geom_text(data=subset(fit1.dx, dDev>4.5), aes(label=id), hjust=-.3, vjust=.8, col="red") + theme_bw()
+p4 <- ggplot(fit1.dx, aes(P, dBhat)) + geom_point() +  geom_text(data=subset(fit1.dx, dDev>4.5), aes(label=id), hjust=-.3, vjust=.8, col="red") + geom_text(data=subset(fit1.dx, dBhat>0.15), aes(label=id), hjust=1,vjust=.8, col="blue") + theme_bw()
+grid.arrange(p1, p2, p3, p4, nrow=2)
+
+
+```
+The diagnostic plots allow us to identify observations or covariate patterns that are poorly fitted to the data, however in logistic regression, the diagnostic statistics often depend upon $\hat\pi$. The dChisq plot shows the each covariate pattern and the difference in chi square statistics between our model and our model without the given covariate pattern. 
+The $\delta D$, covariate pattern looks bizzare with the two linear relations present. 
+
+$\hat d\beta$ point 92 is suspect, and should be checked like in the delta D above. 
+
+
+
+```{r}
+dx(i)[5446,]
+```
+
+
+```{r}
+?gof
+```
+
+```{r}
+
+```
+
+
+
+```{r}
+library(texreg)
+require(texreg)
+# First, create a class definition for your regression objects(midslm):
+setClass(Class="miralm",
+         representation=representation(
+           names="character",
+           coef="numeric",
+           se="numeric",
+           pval="numeric",
+           rsq="numeric",
+           adjrs="numeric",
+           n="numeric"
+         )
+)
+
+miralm <- function(mira,n.obs=n) {
+  require(mice)
+  if (!is.mira(mira))
+    stop("The object must have class 'mira'")
+  mod <- mira
+  pmod <- pool(mod)
+  spmod <- summary(pmod)
+  n <- n.obs
+  coef.names <- dimnames(spmod)[[1]]
+  coef <- spmod[ ,1]
+  se <- spmod[ ,2]
+  pvalues <- spmod[ ,5]
+  gof.names <- character()
+  #rs <- round(pool.r.squared(mod)[1],3)
+  #adj <- round(pool.r.squared(mod,T)[1],3)
+  new("miralm", names=coef.names, coef=coef, se=se, pval=pvalues,n)# rsq=rs,adjrs=adj, n=n)
+}
+
+
+```
+
+
+
+
+```{r}
+miralm(miceFit)
+
+```
+
+
+-----testing glm.mids
+```{r}
+# fit <- glm.mids(as.formula(fla), data=imp, family = binomial)
+# #dx(fit)
+# summary(pool(fit))
+```
+
+```{r}
+# dx(fit$analyses[[1]])
 ```
 
