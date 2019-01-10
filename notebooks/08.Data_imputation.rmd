@@ -169,7 +169,7 @@ Graham, J.W., Olchowski, A.E. & Gilreath, T.D. Prev Sci (2007) 8: 206. https://d
 imp <- mice(trainSet, m=20, pred=quickpred(trainSet, minpuc=0.25,
                                         exclude=c('ethnicity','final_bin','subject_id',
                                                   'pco2', "minCalcium",  "maxCalcium", 
-                                                  'bilirubin', 'lactate')),
+                                                  'bilirubin', 'lactate','icustay_id')),
                                           seed=99)
 
 #####
@@ -195,8 +195,8 @@ complete(imp,10)
 #writing imputed data to a file
 for (i in 1:20) {
     worsti = complete(imp,i)
-    fnimp = sprintf('/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/models/imputation/training_worst%d.txt', i)
-    write.table(worsti, file=fnimp)}
+    fnimp = sprintf('/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/models/imputation/training_worst%d.csv', i)
+    write.csv(worsti, file=fnimp)}
 ```
 
 
@@ -321,7 +321,16 @@ library(miceadds)
 ```{r}
 #training model off complete1
 
-modelFit1 <- glm(final_bin~., family=binomial, data=complete(imp,2))#, data=data))
+modelFit1 <- glm(final_bin ~ bandsNum + bilirubin + bun + chloride + creatinine + 
+    daily_sofa + dobutamine + dopamine + epinephrine + first_admit_age + 
+    glucose + heartrate + inr + lactate + norepinephrine + pco2 + 
+    phenylephrine + potassium + ptt + resprate + rrt + temperature + 
+    vasopressin + weight + bicarbonate + diasbp + hemoglobin + 
+    meanartpress + mingcs + pao2fio2Ratio + ph + platelet + spo2 + 
+    sysbp + maxCalcium + maxSodium + maxWBC + minCalcium + minSodium + 
+    minWBC + ethnicity + gender + leukocyte + nitrite + vent_recieved ,family=binomial(link = 'logit'), data=complete(imp,2))
+
+#modelFit1 <- glm(final_bin~., family=binomial, data=complete(imp,2))#, data=data))
 summary(modelFit1)
 ```
 
@@ -418,6 +427,40 @@ logodds[order(logodds[ , 5]), ]
 logodds[order(logodds[ , 5]), ] 
 ```
 
+trying to produce the classification evaluation metrics with my pooled mice:
+
+```{r}
+library(LogisticDx)
+```
+
+
+```{r}
+#fit <- with(data = complete(imp,1), exp = lm(bmi ~ hyp + chl))
+
+fit<- miceFit#modelFit1
+#pooled <- pool(fit)
+
+# Copy one of the fitted lm models fit to
+#   one of the imputed datasets
+pooled_lm = fit$analyses[[1]]
+
+
+# Replace the fitted coefficients with the pooled
+#   estimates (need to check they are replaced in
+#   the correct order)
+pooled_lm$coefficients = summary(pooled)$estimate
+
+# Predict - predictions seem to match the
+#   pooled coefficients rather than the original
+#   lm that was copied
+predict(miceFit$analyses[[1]], newdata = complete(imp,1))
+predict(pooled_lm, newdata = complete(imp,1))
+#gof(pooled_lm)
+
+gof(modelFit1, g = 2, plotROC = TRUE)
+#pooled_lm
+```
+
 
 ```{r}
 for (i in miceFit$analyses){
@@ -468,6 +511,8 @@ dx(i)[5446,]
 
 ```{r}
 ?gof
+
+predict(miceFit, newdata=complete(imp,2), type="response")
 ```
 
 ```{r}
