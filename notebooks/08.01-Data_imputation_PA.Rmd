@@ -16,9 +16,9 @@ output:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, cache=FALSE, comment="  ", prompt = TRUE)
 
-library(plyr)
 library(tidyverse)
 library(mice)
+#library(plyr)
 library(dplyr)
 library(VIM)
 library(ggplot2)
@@ -34,6 +34,8 @@ worst2<- read.csv("/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeli
 final_pt<- read.csv("/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/raw/csv/25012019_final_pt_df2_v.csv",stringsAsFactors=TRUE, check.names=FALSE)
 
 ```
+
+
 
 ```{r some quick data cleaning and housekeeping}
 
@@ -66,6 +68,9 @@ worst2$rrt<- as.factor(worst2$rrt == 1)
 final_pt$iGram_pos<- as.factor(final_pt$Gram_pos==1) #for only culture pos, if gram pos=True, else False
 final_pt$iCulture<- as.factor(!is.na(final_pt$Gram_pos)) #a culture being present =True, else False
 
+#final_pt$Gram_pos
+
+final_pt[is.na(final_pt['Gram_pos']),'Gram_pos']='cultureNeg'
 ```
 
 ```{r}
@@ -75,9 +80,11 @@ final_pt %>% select(Gram_pos) %>% group_by(Gram_pos)%>% summarise(n= n())
 
 ```{r merging final clinical data with patient data to ensure all rows have the outcome and sufficient identifier }
 
-worst2_sid= merge(worst2,final_pt[c('icustay_id','subject_id', 'iGram_pos','iCulture')], by='icustay_id', all.x=TRUE) #left join
+worst2_sid= merge(worst2,final_pt[c('icustay_id','subject_id', 'Gram_pos','iCulture')], by='icustay_id', all.x=TRUE) #left join
 #worst2_sid$Var.2 <- NULL
 worst2_sid<- worst2_sid[,!(names(worst2_sid) %in% c('Var.2'))] #dropping a weird var.2. 
+
+#worst2_sid[is.na(worst2_sid['iGram_pos']),'iGram_pos']='cultureNeg'
 ```
 
 
@@ -108,6 +115,27 @@ trainSet
 ```{r}
 summary(trainSet)
 ```
+
+
+--exploring variables
+
+```{r}
+summary(final_pt$iCulture)
+```
+
+```{r}
+summary(final_pt$iGram_pos)
+```
+
+
+
+```{r}
+summary(subset(trainSet, iCulture==T)$pco2)
+summary(subset(trainSet, iCulture==F)$pco2)
+```
+
+
+
 ```{r}
 pMiss <- function(x){sum(is.na(x))/length(x)*100}
 #pMissingWorst= sapply(worst, pMiss) ##% missing data in associated columns. 
@@ -171,12 +199,17 @@ imp <- mice(trainSet, m=20, pred=quickpred(trainSet, minpuc=0.25,
                                         exclude=c('ethnicity','final_bin','subject_id',
                                                   'pco2', "minCalcium",  "maxCalcium", 
                                                   'bilirubin', 'lactate','icustay_id',
-                                                  'iCulture','iGram_pos')),
+                                                  'iCulture','Gram_pos')),
                                           seed=99)
+
 
 #####
 
 #minpuc: A scalar, vector (of size ncol(data)) or matrix (square, of size ncol(data) specifying the minimum threshold(s) for the proportion of usable cases.
+```
+
+```{r}
+head(trainSet)
 ```
 
 
@@ -215,12 +248,13 @@ for (i in 1:20) {
 ##imp.train_raw <- mice(train_raw, m=1, method='cart', printFlag=FALSE)
 #names(training_outcomes_sid) <- c("bands", "bands_var")
 
-imp2 <- mice(testSet, m=20, pred=quickpred(trainSet, minpuc=0.25,
+imp2 <- mice(testSet, m=20, pred=quickpred(testSet, minpuc=0.25,
                                         exclude=c('ethnicity','final_bin','subject_id',
                                                   'pco2', "minCalcium",  "maxCalcium", 
                                                   'bilirubin', 'lactate','icustay_id',
-                                                  'iCulture','iGram_pos')),
+                                                  'iCulture','Gram_pos')),
                                           seed=99)
+
 
 #####
 
@@ -317,6 +351,79 @@ summary((imp$imp$bands))
 
 ```{r}
 imp$
+```
+
+
+
+
+--------------
+## tree model on data with missing values
+
+```{r}
+
+
+#first trying to classify culture +/-
+trainSet_tree<- trainSet[, !names(trainSet)%in% c('icustay_id','subject_id','Gram_pos')]
+glimpse(trainSet_tree)
+
+
+```
+
+
+
+
+```{r}
+#caret upsampling
+set.seed(12345)
+
+trainSet_tree<- trainSet[, !names(trainSet)%in% c('icustay_id','subject_id','Gram_pos')]
+up_train <- upSample(x = trainSet_tree[, !names(trainSet_tree)%in% c('iCulture')],y = trainSet_tree$iCulture)         
+table(up_train$Class) 
+
+head(up_train)
+```
+
+
+
+```{r}
+#caret upsampling
+library(caret)
+set.seed(12345)
+
+trainSet_tree<- trainSet[, !names(trainSet)%in% c('icustay_id','subject_id','Gram_pos')]
+up_train <- upSample(x = trainSet_tree[, !names(trainSet_tree)%in% c('iCulture')],y = trainSet_tree$iCulture)         
+table(up_train$Class) 
+
+head(up_train)
+
+library(rpart)
+control <- rpart.control(minbucket = 4, cp = 0.001, maxsurrogate = 0, usesurrogate = 0, xval = 10)
+FGL.tr <- rpart(Class~., up_train, method = "class", control = control) #method=anova for regression tree. 
+plotcp(FGL.tr)
+#printcp(FGL.tr)  #same info in FGL.tr$cptable
+
+#prune to optimal size
+FGL.tr1 <- prune(FGL.tr, cp=0.0013)  #approximately the cp corresponding to the optimal size
+FGL.tr1
+par(cex=0.5); plot(FGL.tr1, uniform=F); text(FGL.tr1, use.n = F); par(cex=0.5)
+FGL.tr1$variable.importance
+
+#errors line
+printcp(FGL.tr1) #pruned tree
+FGL.tr1$cptable[nrow(FGL.tr1$cptable),] 
+
+#calculate training and CV misclass rates
+print("training and cv misclass rates")
+FGL.tr1$cptable[nrow(FGL.tr1$cptable),c(3,4)]*min(table(up_train$Class)/nrow(up_train))  #training and cv misclass rates
+
+yhat<-predict(FGL.tr1, type="class")
+sum(yhat != up_train$Class)/nrow(up_train) #check the training misclass rate
+
+```
+
+```{r}
+pred = predict(FGL.tr1, type="class")
+table(pred, up_train$Class)
 ```
 
 
