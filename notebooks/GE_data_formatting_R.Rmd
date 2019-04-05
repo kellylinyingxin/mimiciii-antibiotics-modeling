@@ -1,0 +1,240 @@
+---
+title: "model_building_pa_project"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache=FALSE, comment="  ", prompt = TRUE)
+
+#library(tidyverse)
+library(mice)
+library(dplyr)
+library(VIM)
+library(ggplot2)
+library(lattice)
+library(Amelia)
+library(caret)
+library(doParallel)
+library(imputeMissings)
+#https://www.kaggle.com/captcalculator/imputing-missing-data-with-the-mice-package-in-r  #great reference
+
+set.seed(12345)
+```
+
+
+note this is the data i was using in winter 2019, however i made a few tuning adjustments in my pipeline while workign on the PA project. I have not updated my origional data since then, and can do this once i have my modelformatting and modeling pipeline in place. Overall, I do not expect to see any noticeable difference in the data.
+```{r}
+worst2<- read.csv("/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/processed/22112018_worstdf2_preImp.csv",stringsAsFactors=TRUE, check.names=FALSE)
+final_pt<- read.csv("/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/raw/csv/25012019_final_pt_df2_v.csv",stringsAsFactors=TRUE, check.names=FALSE)
+
+
+```
+
+```{r some quick data cleaning and housekeeping}
+
+worst2$first_admit_age[worst2$first_admit_age>90]<- 90 #since the 
+colnames(worst2)[colnames(worst2)=="('max', 'sodium')"] <- "maxSodium"
+colnames(worst2)[colnames(worst2)=="('min', 'sodium')"] <- "minSodium"
+colnames(worst2)[colnames(worst2)=="('max', 'calcium')"] <- "maxCalcium"
+colnames(worst2)[colnames(worst2)=="('min', 'calcium')"] <- "minCalcium"
+colnames(worst2)[colnames(worst2)=="('max', 'sodium')"] <- "maxSodium"
+colnames(worst2)[colnames(worst2)=="('min', 'sodium')"] <- "minSodium"
+colnames(worst2)[colnames(worst2)=="('max', 'wbc')"] <- "maxWBC"
+colnames(worst2)[colnames(worst2)=="('min', 'wbc')"] <- "minWBC"
+colnames(worst2)[colnames(worst2)=="bands"] <- "bandsNum"
+colnames(worst2)[colnames(worst2)=="pao2/fio2"] <- "pao2fio2Ratio"
+
+
+##changing 90 to be max age instead of 300
+worst2$first_admit_age[worst2$first_admit_age>90]<- 90
+
+worst2$dopamine<- as.factor(worst2$dopamine == 1)
+worst2$dobutamine<- as.factor(worst2$dobutamine == 1)
+worst2$vasopressin<- as.factor(worst2$vasopressin == 1)
+worst2$epinephrine<- as.factor(worst2$epinephrine == 1)
+worst2$norepinephrine<- as.factor(worst2$norepinephrine == 1)
+worst2$phenylephrine<- as.factor(worst2$phenylephrine == 1)
+worst2$rrt<- as.factor(worst2$rrt == 1)
+
+
+worst2
+final_pt
+#final_pt[is.na(final_pt$Gram_pos),'Gram_pos'] <-3
+#final_pt<- subset(final_pt, Gram_pos!=2) #REMOVING MYCOBACERIA PATIENTS
+
+#making binary culture variable
+#final_pt$iGram_pos<- as.factor(final_pt$Gram_pos==1) #for only culture pos, if gram pos=True, else False
+
+##making 3 level factor variable
+#final_pt$iGram_pos<- factor(final_pt$Gram_pos, labels=c('gram_neg','gram_pos','culture_neg'))
+#final_pt$iCulture<- as.factor(!is.na(final_pt$Gram_pos)) #a culture being present =True, else False
+
+
+```
+
+```{r}
+##converting bands and pco2 into categorical factors
+worst2$ibands<- 'absent'
+worst2[which( worst2$bandsNum<=10 & is.na(worst2$bandsNum)==FALSE) , 'ibands'] <- '<10'
+worst2[which( worst2$bandsNum >10 & is.na(worst2$bandsNum)==FALSE) , 'ibands'] <- '>10'
+summary(as.factor(worst2$ibands))
+
+
+worst2$ipco2<- 'absent'
+worst2[which( worst2$pco2<=50 & is.na(worst2$pco2)==FALSE) , 'ipco2'] <- '<50'
+worst2[which( worst2$pco2 >50 & is.na(worst2$pco2)==FALSE) , 'ipco2'] <- '>50'
+summary(as.factor(worst2$ipco2))
+
+worst2<- worst2[ , !names(worst2) %in% c('pco2','bandsNum')]
+
+```
+
+
+```{r}
+
+final_pt %>% 
+  select(final_bin) %>% 
+  group_by(final_bin) %>% 
+  dplyr::summarise(n())
+
+worst2 %>% 
+  select(ibands) %>% 
+  group_by(ibands) %>% 
+  dplyr::summarise(n())
+
+```
+
+
+```{r merging final clinical data with patient data to ensure all rows have the outcome and sufficient identifier }
+
+#left join worst2 with final_pt outcome and pt id labels
+worst2_sid= merge(worst2,final_pt[c('icustay_id','subject_id', 'final_bin')], by='icustay_id', all.x=TRUE)
+
+ #REMOVING PT WITH MYCOBACTERIA
+worst2_sid<- worst2_sid[worst2_sid$icustay_id %in% final_pt$icustay_id,]
+
+#left join
+#worst2_sid$Var.2 <- NULL
+worst2_sid<- worst2_sid[,!(names(worst2_sid) %in% c('Var.2'))] #dropping a weird var.2. 
+glimpse(worst2_sid)
+```
+
+
+---------------
+splitting cohort into two sets, training and validation. note if pt has >1 icustay_id, they should both end up in same cohort. ie they will be split at the subject_id level.
+```{r}
+summary(worst2_sid$subject_id)
+```
+
+
+```{r splitting cohort into two sets, training and validation.}
+set.seed(12345)
+index <- createDataPartition(worst2_sid$subject_id, p=0.70, list=FALSE)
+trainSet <- worst2_sid[ index,]
+testSet <- worst2_sid[-index,]
+
+```
+
+```{r}
+colSums(is.na(trainSet))
+trainSet
+
+# write.csv(trainSet, file ="/Users/geickelb1/Box/PAII_project/processed_data/pre_imputation_datasets/20190401_train_noimpute.csv", row.names=FALSE)
+```
+
+
+
+```{r, imputing via median/mode}
+median_imputed<- impute(trainSet, method="median/mode")
+```
+
+```{r get dataset ready to model} 
+#convert outcom to factor again
+median_imputed$final_bin<- as.factor(median_imputed$final_bin)
+
+#removing subject id
+median_imputed<-median_imputed[, !names(median_imputed)%in% c('subject_id')]
+#summary(median_imputed$iGram_pos)
+#typeof(median_imputed$iGram_pos)
+glimpse(median_imputed)
+```
+
+```{r}
+write.csv(median_imputed, file ="/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/models/imputation/01042019_median_imputed_train.csv", row.names=FALSE) #"/Users/geickelb1/Documents/GitHub/PAII_mimic_project/processed_data/20190221_median_imputed.csv")
+
+```
+
+
+
+### test set
+
+```{r}
+
+median_imputed_test<- impute(testSet, method="median/mode")
+#convert outcom to factor again
+median_imputed_test$final_bin<- as.factor(median_imputed_test$final_bin)
+
+#removing subject id
+median_imputed_test<-median_imputed_test[, !names(median_imputed_test)%in% c('subject_id')]
+#summary(median_imputed$iGram_pos)
+#typeof(median_imputed$iGram_pos)
+glimpse(median_imputed_test)
+```
+
+
+
+```{r}
+write.csv(median_imputed_test, file ="/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/models/imputation/01042019_median_imputed_test.csv", row.names=FALSE)
+```
+
+
+```{r}
+preprocessed<- preProcess(median_imputed, method = c("center","scale")) #convert to z-scores
+
+preprocessed_imputd<-predict(preprocessed, newdata= median_imputed)
+glimpse(preprocessed_imputd)
+
+preprocessed_test<- preProcess(median_imputed_test, method = c("center","scale")) #convert to z-scores
+
+preprocessed_imputd_test<-predict(preprocessed_test, newdata= median_imputed_test)
+
+```
+
+
+```{r}
+write.csv(preprocessed_imputd, file ="/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/models/imputation/01042019_median_imputed_train_normalized.csv", row.names=FALSE)
+
+write.csv(preprocessed_imputd_test, file ="/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/models/imputation/01042019_median_imputed_test_normalized.csv", row.names=FALSE)
+```
+
+
+
+
+
+
+###data dictionary
+```{r}
+library(ForImp)
+missing<- missingness(worst2_sid)
+missing_pct<-missing$missing_values_per_variable/ nrow(worst2_sid)
+missing_pct<-data.frame(missing_pct)
+
+##grabbing table source data from python output
+datadict<- read.csv("/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/processed/PA_project/merged/25012019_pa_data_dictionary.csv",stringsAsFactors=TRUE, check.names=FALSE)
+
+
+datadict
+
+missing_pct$label<- rownames(missing_pct)
+
+data.dictionary<-merge(missing_pct,datadict, by='label', all.x=TRUE)
+
+data.dictionary
+```
+
+```{r}
+write.csv(data.dictionary,"/Users/geickelb1/Documents/GitHub/PAII_mimic_project/model_building/data_dictonary.csv")
+#/Users/geickelb1/Documents/GitHub/PAII_mimic_project/model_building/Rplots.pdf
+```
+
