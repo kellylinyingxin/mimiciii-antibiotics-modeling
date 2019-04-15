@@ -1,0 +1,273 @@
+---
+title: "model_building_pa_project"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache=FALSE, comment="  ", prompt = TRUE)
+
+#library(tidyverse)
+library(mice)
+library(dplyr)
+library(VIM)
+library(ggplot2)
+library(lattice)
+library(Amelia)
+library(caret)
+library(doParallel)
+library(imputeMissings)
+#https://www.kaggle.com/captcalculator/imputing-missing-data-with-the-mice-package-in-r  #great reference
+
+set.seed(12345)
+```
+
+
+note: this is a slightly modified median imputation preproessing document where I'm working with the new data aggregations (std, mean, and range) for each continuous variable.
+```{r}
+# worst2<- read.csv("/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/processed/04042019_worstdf_preImp.csv",stringsAsFactors=TRUE, check.names=FALSE)
+newagg<- read.csv("/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/processed/04042019_newaggdf_preImp.csv",stringsAsFactors=TRUE, check.names=FALSE)
+final_pt<- read.csv("/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/raw/csv/04042019_final_pt_df2_v.csv",stringsAsFactors=TRUE, check.names=FALSE)
+
+####SHIT, i was using wrong patient list. changed to my most up to date version. the mistake version i used was the patients for the PA project. this had 8,629 icustay id. 
+##after updating it now contains 14478 patients.
+
+
+
+```
+
+```{r}
+dim(final_pt)
+final_pt
+```
+
+```{r}
+glimpse(newagg)
+
+#df <- subset(df, select = -c(a, c))  #syntax for easily removing columns
+#newagg$pco
+#newagg <- subset(newagg, select = -c("ptp_bands","std_bands","", ))
+```
+
+
+```{r some quick data cleaning and housekeeping}
+
+
+newagg$first_admit_age[newagg$first_admit_age>90]<- 90 #since the 
+# colnames(worst2)[colnames(worst2)=="('max', 'sodium')"] <- "maxSodium"
+# colnames(worst2)[colnames(worst2)=="('min', 'sodium')"] <- "minSodium"
+# colnames(worst2)[colnames(worst2)=="('max', 'calcium')"] <- "maxCalcium"
+# colnames(worst2)[colnames(worst2)=="('min', 'calcium')"] <- "minCalcium"
+# colnames(worst2)[colnames(worst2)=="('max', 'sodium')"] <- "maxSodium"
+# colnames(worst2)[colnames(worst2)=="('min', 'sodium')"] <- "minSodium"
+# colnames(worst2)[colnames(worst2)=="('max', 'wbc')"] <- "maxWBC"
+# colnames(worst2)[colnames(worst2)=="('min', 'wbc')"] <- "minWBC"
+colnames(newagg)[colnames(newagg)=="bands"] <- "bandsNum"
+colnames(newagg)[colnames(newagg)=="pao2/fio2"] <- "pao2fio2Ratio"
+
+
+##changing 90 to be max age instead of 300
+newagg$first_admit_age[newagg$first_admit_age>90]<- 90
+
+newagg$dopamine<- as.factor(newagg$dopamine == 1)
+newagg$dobutamine<- as.factor(newagg$dobutamine == 1)
+newagg$vasopressin<- as.factor(newagg$vasopressin == 1)
+newagg$epinephrine<- as.factor(newagg$epinephrine == 1)
+newagg$norepinephrine<- as.factor(newagg$norepinephrine == 1)
+newagg$phenylephrine<- as.factor(newagg$phenylephrine == 1)
+newagg$rrt<- as.factor(newagg$rrt == 1)
+
+
+newagg
+final_pt
+#final_pt[is.na(final_pt$Gram_pos),'Gram_pos'] <-3
+#final_pt<- subset(final_pt, Gram_pos!=2) #REMOVING MYCOBACERIA PATIENTS
+
+#making binary culture variable
+#final_pt$iGram_pos<- as.factor(final_pt$Gram_pos==1) #for only culture pos, if gram pos=True, else False
+
+##making 3 level factor variable
+#final_pt$iGram_pos<- factor(final_pt$Gram_pos, labels=c('gram_neg','gram_pos','culture_neg'))
+#final_pt$iCulture<- as.factor(!is.na(final_pt$Gram_pos)) #a culture being present =True, else False
+
+
+```
+
+```{r}
+##converting bands and pco2 into categorical factors
+newagg$ibands<- 'absent'
+newagg[which( newagg$bandsNum<=10 & is.na(newagg$bandsNum)==FALSE) , 'ibands'] <- '<10'
+newagg[which( newagg$bandsNum >10 & is.na(newagg$bandsNum)==FALSE) , 'ibands'] <- '>10'
+summary(as.factor(newagg$ibands))
+
+
+newagg$ipco2<- 'absent'
+newagg[which( newagg$pco2<=50 & is.na(newagg$pco2)==FALSE) , 'ipco2'] <- '<50'
+newagg[which( newagg$pco2 >50 & is.na(newagg$pco2)==FALSE) , 'ipco2'] <- '>50'
+summary(as.factor(newagg$ipco2))
+
+newagg<- newagg[ , !names(newagg) %in% c('pco2','bandsNum')]
+
+```
+
+
+```{r}
+final_pt %>% 
+  select(final_bin) %>% 
+  group_by(final_bin) %>% 
+  dplyr::summarise(n())
+
+newagg %>% 
+  select(ibands) %>% 
+  group_by(ibands) %>% 
+  dplyr::summarise(n())
+
+```
+
+
+```{r merging final clinical data with patient data to ensure all rows have the outcome and sufficient identifier }
+
+#left join worst2 with final_pt outcome and pt id labels
+newagg_sid= merge(newagg,final_pt[c('icustay_id','subject_id', 'final_bin')], by='icustay_id', all.x=TRUE)
+
+#  #REMOVING PT WITH MYCOBACTERIA
+# worst2_sid<- worst2_sid[worst2_sid$icustay_id %in% final_pt$icustay_id,]
+
+#left join
+#worst2_sid$Var.2 <- NULL
+newagg_sid<- newagg_sid[,!(names(newagg_sid) %in% c('Var.2'))] #dropping a weird var.2. 
+glimpse(newagg_sid)
+
+```
+
+
+#####filtering to only twoclass:
+
+```{r}
+newagg_sid=newagg_sid[newagg_sid$final_bin %in% c("C_neg/A_partial","C_pos/A_full"),]
+```
+
+
+---------------
+splitting cohort into two sets, training and validation. note if pt has >1 icustay_id, they should both end up in same cohort. ie they will be split at the subject_id level.
+```{r}
+summary(newagg_sid$subject_id)
+```
+
+
+```{r splitting cohort into two sets, training and validation.}
+set.seed(12345)
+index <- createDataPartition(newagg_sid$subject_id, p=0.70, list=FALSE)
+trainSet <- newagg_sid[ index,]
+testSet <- newagg_sid[-index,]
+
+```
+
+```{r}
+colSums(is.na(trainSet))
+trainSet
+
+# write.csv(trainSet, file ="/Users/geickelb1/Box/PAII_project/processed_data/pre_imputation_datasets/20190401_train_noimpute.csv", row.names=FALSE)
+```
+
+
+
+```{r, imputing via median/mode}
+median_imputed<- impute(trainSet, method="median/mode")
+```
+
+```{r get dataset ready to model} 
+#convert outcom to factor again
+median_imputed$final_bin<- as.factor(median_imputed$final_bin)
+
+#removing subject id
+median_imputed<-median_imputed[, !names(median_imputed)%in% c('subject_id')]
+#summary(median_imputed$iGram_pos)
+#typeof(median_imputed$iGram_pos)
+glimpse(median_imputed)
+```
+
+```{r}
+write.csv(median_imputed, file ="/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/models/imputation/04042019_newagg_median_imputed_train.csv", row.names=FALSE) #"/Users/geickelb1/Documents/GitHub/PAII_mimic_project/processed_data/20190221_median_imputed.csv")
+
+```
+
+
+
+### test set
+
+```{r}
+
+median_imputed_test<- impute(testSet, method="median/mode")
+#convert outcom to factor again
+median_imputed_test$final_bin<- as.factor(median_imputed_test$final_bin)
+
+#removing subject id
+median_imputed_test<-median_imputed_test[, !names(median_imputed_test)%in% c('subject_id')]
+#summary(median_imputed$iGram_pos)
+#typeof(median_imputed$iGram_pos)
+glimpse(median_imputed_test)
+```
+
+
+
+```{r}
+write.csv(median_imputed_test, file ="/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/models/imputation/04042019_newagg_median_imputed_test.csv", row.names=FALSE)
+```
+
+
+
+###STOPPED HERE 4-12-19. need to figure out how I want to deal with normalization from here on out.
+
+
+
+
+```{r}
+preprocessed<- preProcess(median_imputed[,c(2:47)], method = c("center","scale")) #convert to z-scores
+
+preprocessed_imputd<-predict(preprocessed, newdata= median_imputed)
+glimpse(preprocessed_imputd)
+
+preprocessed_test<- preProcess(median_imputed_test[,c(2:47)], method = c("center","scale")) #convert to z-scores
+
+preprocessed_imputd_test<-predict(preprocessed_test, newdata= median_imputed_test)
+
+```
+
+
+```{r}
+write.csv(preprocessed_imputd, file ="/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/models/imputation/01042019_median_imputed_train_normalized.csv", row.names=FALSE)
+
+write.csv(preprocessed_imputd_test, file ="/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/models/imputation/01042019_median_imputed_test_normalized.csv", row.names=FALSE)
+```
+
+
+
+
+
+
+###data dictionary
+```{r}
+library(ForImp)
+missing<- missingness(worst2_sid)
+missing_pct<-missing$missing_values_per_variable/ nrow(worst2_sid)
+missing_pct<-data.frame(missing_pct)
+
+##grabbing table source data from python output
+datadict<- read.csv("/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/processed/PA_project/merged/25012019_pa_data_dictionary.csv",stringsAsFactors=TRUE, check.names=FALSE)
+
+
+datadict
+
+missing_pct$label<- rownames(missing_pct)
+
+data.dictionary<-merge(missing_pct,datadict, by='label', all.x=TRUE)
+
+data.dictionary
+```
+
+```{r}
+write.csv(data.dictionary,"/Users/geickelb1/Documents/GitHub/PAII_mimic_project/model_building/data_dictonary.csv")
+#/Users/geickelb1/Documents/GitHub/PAII_mimic_project/model_building/Rplots.pdf
+```
+
