@@ -57,9 +57,6 @@ worst2$norepinephrine<- as.factor(worst2$norepinephrine == 1)
 worst2$phenylephrine<- as.factor(worst2$phenylephrine == 1)
 worst2$rrt<- as.factor(worst2$rrt == 1)
 
-
-worst2
-final_pt
 #final_pt[is.na(final_pt$Gram_pos),'Gram_pos'] <-3
 #final_pt<- subset(final_pt, Gram_pos!=2) #REMOVING MYCOBACERIA PATIENTS
 
