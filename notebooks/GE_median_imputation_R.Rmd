@@ -25,13 +25,25 @@ set.seed(12345)
 
 note this is the data i was using in winter 2019, however i made a few tuning adjustments in my pipeline while workign on the PA project. I have not updated my origional data since then, and can do this once i have my modelformatting and modeling pipeline in place. Overall, I do not expect to see any noticeable difference in the data.
 ```{r}
-worst2<- read.csv("/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/processed/22112018_worstdf2_preImp.csv",stringsAsFactors=TRUE, check.names=FALSE)
-final_pt<- read.csv("/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/raw/csv/25012019_final_pt_df2_v.csv",stringsAsFactors=TRUE, check.names=FALSE)
+worst2<- read.csv("/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/processed/04042019_worstdf_preImp.csv",stringsAsFactors=TRUE, check.names=FALSE)
+newagg<- read.csv("/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/processed/04042019_newaggdf_preImp.csv",stringsAsFactors=TRUE, check.names=FALSE)
+final_pt<- read.csv("/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/raw/csv/04042019_final_pt_df2_v.csv",stringsAsFactors=TRUE, check.names=FALSE)
+
+####SHIT, i was using wrong patient list. changed to my most up to date version. the mistake version i used was the patients for the PA project. this had 8,629 icustay id. 
+##after updating it now contains 14478 patients.
+
 
 
 ```
 
+```{r}
+dim(final_pt)
+final_pt
+```
+
+
 ```{r some quick data cleaning and housekeeping}
+
 
 worst2$first_admit_age[worst2$first_admit_age>90]<- 90 #since the 
 colnames(worst2)[colnames(worst2)=="('max', 'sodium')"] <- "maxSodium"
@@ -92,7 +104,6 @@ worst2<- worst2[ , !names(worst2) %in% c('pco2','bandsNum')]
 
 
 ```{r}
-
 final_pt %>% 
   select(final_bin) %>% 
   group_by(final_bin) %>% 
@@ -111,13 +122,21 @@ worst2 %>%
 #left join worst2 with final_pt outcome and pt id labels
 worst2_sid= merge(worst2,final_pt[c('icustay_id','subject_id', 'final_bin')], by='icustay_id', all.x=TRUE)
 
- #REMOVING PT WITH MYCOBACTERIA
-worst2_sid<- worst2_sid[worst2_sid$icustay_id %in% final_pt$icustay_id,]
+#  #REMOVING PT WITH MYCOBACTERIA
+# worst2_sid<- worst2_sid[worst2_sid$icustay_id %in% final_pt$icustay_id,]
 
 #left join
 #worst2_sid$Var.2 <- NULL
 worst2_sid<- worst2_sid[,!(names(worst2_sid) %in% c('Var.2'))] #dropping a weird var.2. 
 glimpse(worst2_sid)
+
+```
+
+
+#####filtering to only twoclass:
+
+```{r}
+worst2_sid=worst2_sid[worst2_sid$final_bin %in% c("C_neg/A_partial","C_pos/A_full"),]
 ```
 
 
