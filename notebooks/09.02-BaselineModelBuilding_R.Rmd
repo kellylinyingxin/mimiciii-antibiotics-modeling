@@ -6,6 +6,8 @@ output:
 ---
 
 
+###note: a big change was made after realizing i had used the PA projec tpatient list, rather than the prolonged ab patient list. model building results will vary now.
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, cache=FALSE, comment="  ", prompt = TRUE)
 ```
@@ -909,6 +911,9 @@ ggplot(df_out, aes(x=PC1, y=PC2, color=group)) +geom_point()
 
 ```
 
+why is this streaky?
+
+
 2variable:
 
 ```{r}
@@ -1024,7 +1029,7 @@ approach as a.
 
 try a longitudinal approach:
 impute with last one carry forward.
-
+lal
 
 
 hybrid approach:
