@@ -1,0 +1,1122 @@
+---
+title: "model_building_prolongedAB_project"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+
+###note: 04-15-19 this is model building worksheet for using median, range, and std of values, where the values are now normalized to a "healthy" population. x-median /IQR where meadian and IQR were calculated for the last 24 hours of ab_partial/culture-neg patients. 
+### note: this is a slightly modified median imputation preproessing document where I'm working with the new data aggregations (max,min, median, and std) for the top most important variables found on the inital . data extracted from my python pipeline (newagg data from 07.30 ipynb) and preprocessed in 09.newagg2_preprocessing_median_impute.rmd.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache=FALSE, comment="  ", prompt = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(doParallel)
+library(doSNOW)
+library(MLmetrics)
+library(mlbench)
+library(gbm)
+library(randomForest)
+
+#https://www.kaggle.com/captcalculator/imputing-missing-data-with-the-mice-package-in-r  #great reference
+
+```
+
+```{r}
+data<- read.csv("/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/models/imputation/04042019_newagg2_median_imputed_train.csv", stringsAsFactors=TRUE,check.names=TRUE)
+# data_test<- read.csv("/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/models/imputation/04042019_newagg_median_imputed_test.csv", stringsAsFactors=TRUE,check.names=TRUE)
+
+cores<- 5 #number of parallel processing clusters,
+```
+
+```{r}
+glimpse(data)
+```
+
+
+#restricting to two class classification
+```{r}
+# data<-subset(data, final_bin %in% c('C_neg/A_full','C_pos/A_full',"C_neg/A_partial"))
+# data_test<-subset(data_test, final_bin %in% c('C_neg/A_full','C_pos/A_full',"C_neg/A_partial"))
+# 
+# data_2class<-subset(data, final_bin %in% c('C_pos/A_full',"C_neg/A_partial"))
+# data_test_2class<-subset(data_test, final_bin %in% c('C_pos/A_full',"C_neg/A_partial"))
+```
+
+
+
+```{r}
+factor_convert<- function(preprocessed_imputd, level_number=2, level1='C_neg/A_partial', level2='C_pos/A_full', label1= "neg", label2="pos"){
+  if (level_number==2){
+    preprocessed_imputd$final_bin= factor(preprocessed_imputd$final_bin, levels=c(level1,level2), labels=c(label1,label2))
+  }
+  logical_vec<-names(preprocessed_imputd[,sapply(preprocessed_imputd, is.logical)])
+  preprocessed_imputd[,logical_vec]<-lapply(preprocessed_imputd[,logical_vec],as.factor)
+  return(preprocessed_imputd)
+}
+```
+
+
+### fixing logical -> factors
+```{r}
+# # norm_and_transform(data)
+#full_imputed<- norm_and_transform(data)
+full_imputed<-factor_convert(data, level_number=2)
+table(full_imputed$final_bin)
+# 
+# full_imputed_test<- norm_and_transform(data_test)
+# full_imputed_test<-factor_convert(full_imputed_test, level_number=4)
+# 
+# preprocessed_imputd<-norm_and_transform(data_2class)
+# preprocessed_imputd<-factor_convert(preprocessed_imputd)
+# 
+# preprocessed_imputd_test<-norm_and_transform(data_test_2class)
+# preprocessed_imputd_test<-factor_convert(preprocessed_imputd_test)
+```
+
+### dropping varibles
+
+```{r preprocessing}
+#converting weight and first_admit age to the median/iqr based zscore
+weight_median=median(full_imputed[full_imputed$final_bin=='neg',"weight"])
+weight_iqr=IQR(full_imputed[full_imputed$final_bin=='neg',"weight"])
+
+age_median=median(full_imputed[full_imputed$final_bin=='neg',"first_admit_age"])
+age_iqr=IQR(full_imputed[full_imputed$final_bin=='neg',"first_admit_age"])
+
+full_imputed$weight=(full_imputed$weight - weight_median)/weight_iqr
+full_imputed$first_admit_age=(full_imputed$first_admit_age - age_median)/age_iqr
+
+#removing icustay id and keeping as a seperate vector
+icustay_id= full_imputed$icustay_id
+full_imputed<-full_imputed[,!names(full_imputed) %in% c("icustay_id")]
+
+```
+
+
+
+# visualizing data
+
+```{r}
+# library(skimr)
+# # skim(data)
+# #skim(full_imputed.lapply(log(+1)))
+# 
+# 
+# 
+# full_imputed_numeric<-full_imputed[,names(full_imputed[,sapply(full_imputed, is.double)])]
+# #full_imputed_numeric<-full_imputed_numeric[,names(full_imputed_numeric[,sapply(full_imputed, is.integer)==FALSE])]
+# 
+# 
+# summary(full_imputed_numeric)
+# 
+# full_log_numeric<-log(full_imputed_numeric+1.1)
+# skim(full_log_numeric)
+# full_log_numeric[is.na(full_log_numeric)] =0
+# 
+# skim(full_log_numeric)
+# skim(full_imputed_numeric)
+# 
+# log()
+# 
+# #ok weird, mean_creatinine max is greater than ptp_creatinine max. oh right, the range is just max-min. 
+# 
+# full_imputed_numeric[full_imputed_numeric['ptp_creatinine']==13.11111,c('ptp_creatinine',"mean_creatinine","std_creatinine")]
+# 
+# max(full_imputed_numeric[c('ptp_creatinine')]) #
+# 
+# full_imputed_numeric[full_imputed_numeric['ptp_creatinine']==max(full_imputed_numeric[c('ptp_creatinine')]),c('ptp_creatinine',"mean_creatinine","std_creatinine") ]
+# full_imputed_numeric[full_imputed_numeric['mean_creatinine']==max(full_imputed_numeric[c('mean_creatinine')]),c('ptp_creatinine',"mean_creatinine","std_creatinine") ]
+# 
+# icustay_id[1833] 
+# 
+# ##need to explore:
+# #  #icustay id:248526
+# # ptp_creatinine: 1.666667
+# # mean_creatinine: 15.40741
+# # std_creatinine:0.9049475
+# 
+#  
+#  #  #icustay id:233363
+# # ptp_creatinine: 13.11111
+# # mean_creatinine: 9.574074
+# # std_creatinine:5.281889
+# 
+# 
+# ##explore relationship between creatinine ptp and std
+# 
+# range_std=full_imputed_numeric['ptp_creatinine']/full_imputed_numeric['std_creatinine']
+# range_std
+# ggplot(range_std, aes(x=ptp_creatinine)) + geom_density() 
+# 
+# ggplot(full_imputed_numeric, aes(x=ptp_creatinine)) + geom_density() 
+# ggplot(full_imputed_numeric, aes(x=std_creatinine)) + geom_density() 
+
+```
+
+```{r}
+library(skimr)
+skim(full_imputed)
+```
+
+
+preprocessing transform methods in caret: https://machinelearningmastery.com/pre-process-your-dataset-in-r/
+
+```{r}
+names(full_imputed)
+for (element in names(full_imputed)){
+  print(ggplot(full_imputed, aes(x=element)) + geom_density() )
+}
+
+ggplot(full_imputed, aes(x=ptp_wbc)) + geom_density() 
+ggplot(full_imputed, aes(x=mean_bilirubin)) + geom_density() 
+
+mean_bilirubin
+```
+
+
+
+-----------2 CLASS MODEL BUILDING------------------
+
+
+
+
+###logistic regression
+
+```{r}
+library(caret)
+set.seed(12345)
+fitControl <- trainControl(## 10-fold CV
+                           method = "repeatedcv",
+                           number = 10,
+                           classProbs = TRUE,
+                           sampling= "smote",
+                           summaryFunction= multiClassSummary,
+                           repeats = 5,
+                           savePredictions = T)
+
+logit_1 <- train(
+  final_bin~.,
+  data=full_imputed,
+  method="glm",
+  family=binomial,
+  metric='Accuracy',
+  trControl = fitControl
+  )
+
+
+logit_1$results #%>% arrange(RMSE) %>% head(1)[c(1:2,3,5)] ->knn_output_10; knn_output_10
+
+#cv-confusion matrix percentage
+table(full_imputed$final_bin)/nrow(full_imputed)
+table(full_imputed$final_bin)
+confusionMatrix(logit_1, positive="pos")
+
+##test confusion
+#round(table(yhat=predict(logit_1,preprocessed_imputd_test),y=preprocessed_imputd_test$final_bin)/ nrow(preprocessed_imputd_test),3) *100
+```
+pretty good. having a higher negative predictive value probably better as a screening tool. 
+
+```{r}
+# library(pROC)
+# # Select a parameter setting
+# #logit_1$pred$mtry
+# selectedIndices <- logit_1$pred$mtry == "pos"
+# # Plot:
+# 
+# # plot.roc(logit_1$pred$obs[selectedIndices],
+# #          logit_1$pred$neg[selectedIndices])
+
+```
+
+
+
+```{r}
+# 
+# table(preprocessed_imputd$final_bin)
+# 
+# library(gridExtra)
+# set.seed(12345)
+# w<- 1/table(preprocessed_imputd$final_bin)
+# 
+# # fitControl <- trainControl(## oob
+# #                            method = "oob",
+# #                            classProbs = TRUE,
+# #                            summaryFunction= multiClassSummary)
+# 
+# 
+# fitControl <- trainControl(## 10-fold CV
+#                            method = "cv",
+#                            number = 10,
+#                            classProbs = TRUE,
+#                            summaryFunction= multiClassSummary)
+# 
+# tuning<- expand.grid(mtry=c(2,3))
+# 
+# rf_1 <- train(
+#   final_bin~.,
+#   data=preprocessed_imputd,
+#   method="rf",
+#   metric='logLoss',
+#   trControl = fitControl,
+#   tuneGrid= tuning,
+#   classwt=w
+#   )
+# 
+# rf_1$results #%>% arrange(RMSE) %>% head(1)[c(1:2,3,5)] ->knn_output_10; knn_output_10
+# 
+# confusionMatrix(rf_1)
+```
+ Accuracy (average) cv : 0.8445
+ 
+ 
+
+```{r} 
+#  z
+# # set.seed(12345)
+# # w<- 1/table(preprocessed_imputd$final_bin)
+# # 
+# # fitControl <- trainControl(## 10-fold CV
+# #                            method = "cv",
+# #                            number = 3,
+# #                            classProbs = TRUE,
+# #                            summaryFunction= twoClassSummary)
+# # 
+# # tuning<- expand.grid(mtry=c(3))
+# # 
+# # rf_1 <- train(
+# #   x= preprocessed_imputd[,-c(46)],
+# #   y=preprocessed_imputd$final_bin,
+# #   # final_bin~.,
+# #   # data=preprocessed_imputd,
+# #   method="rf",
+# #   metric='Spec',
+# #   trControl = fitControl,
+# #   tuneGrid= tuning,
+# #   classwt=w
+# #   )
+# # 
+# # rf_1$results#%>% arrange(-Specificity) #%>% arrange(RMSE) %>% head(1)[c(1:2,3,5)] ->knn_output_10; knn_output_10
+# # 
+# # confusionMatrix(rf_1, positive="pos", mode="everything")
+# # 
+# # predict(rf_1,preprocessed_imputd_test)
+# # rf_1$
+# # 
+# # rf_test<-confusionMatrix(rf_1,reference=preprocessed_imputd_test$final_bin,positive="pos", mode="everything"); rf_test
+```
+
+yeiks, didn't work that well on the positive class. 
+ 
+ 
+
+ 
+```{r}
+# rf_1
+# 
+# 
+# confusionMatrix(rf_1)# * nrow(preprocessed_imputd)
+# 
+# #test confusion
+# round(table(yhat=predict(rf_1,preprocessed_imputd_test),y=preprocessed_imputd_test$final_bin)/ nrow(preprocessed_imputd_test),3) *100
+# 
+# table(yhat=predict(rf_1,preprocessed_imputd_test),y=preprocessed_imputd_test$final_bin)
+```
+ 
+ 
+shows really poor specificity!
+
+confirming mtry for training on accuracy.
+```{r}
+library(randomForest)
+w<- 1/table(full_imputed$final_bin)
+
+set.seed(12345)
+full_imputed[,names(full_imputed) !="final_bin"]
+rFtune<- tuneRF(full_imputed[,names(full_imputed) !="final_bin"],  y=full_imputed$final_bin,
+                mtryStart=6,
+                ntreeTry=50, #number of trees used at the tuning step
+                stepFactor=2, #at each iteration, mtry is inflated (or deflated) by this value
+                improve=0.05, #the (relative) improvement in OOB error must be by this much for the 
+                trace=TRUE,
+                plot=TRUE,
+                doBest=FALSE)#,
+                #classwt=w)
+
+#18:OOB error = 21.1%  #mtry=18
+```
+
+mtry =3 appears to be the best by both caret cv and tuneRF.
+
+
+
+training rf on a different classification parameter, logloss. Log Loss is like accuracy (where 0 is perfect and 1 is worst) except it heavily penalises classifiers that are confident about an incorrect classification.
+
+```{r}
+# library(gridExtra)
+# set.seed(12345)
+# w<- 1/table(preprocessed_imputd$final_bin)
+# 
+# fitControl <- trainControl(## 10-fold CV
+#                            method = "repeatedcv",
+#                            number = 5,
+#                            classProbs = TRUE,
+#                            #sampling= "smote",
+#                            summaryFunction= multiClassSummary,
+#                            repeats = 1)
+# 
+# tuning<- expand.grid(mtry=c(2,3,4,5,10,20))
+# 
+# rf_2 <- train(
+#   final_bin~.,
+#   data=preprocessed_imputd,
+#   method="rf",
+#   metric='logLoss',
+#   trControl = fitControl,
+#   tuneGrid= tuning,
+#   classwt=w
+#   )
+# 
+# rf_2$results%>% arrange(logLoss) #%>% head(1)[c(1:2,3,5)] ->knn_output_10; knn_output_10
+# 
+# confusionMatrix(rf_2)
+```
+
+
+
+
+######using randomForest vanilla package
+```{r}
+# 
+library(randomForest)
+set.seed(12345)
+rForest <- randomForest(x=full_imputed[,!names(full_imputed) %in%c("icustay_id","final_bin")],
+                        y=full_imputed$final_bin,
+                        # xtest=preprocessed_imputd_test[,-c(46)],
+                        # ytest=preprocessed_imputd_test$final_bin,
+                        mtry=6,
+                        ntree = 200,
+                        importance = TRUE)
+
+
+
+plot(rForest)
+rForest
+
+rForest$importance
+varImpPlot(rForest)
+#varImpPlot(rForest)$
+
+
+# table(yhat=predict(rForest,preprocessed_imputd_test),y=preprocessed_imputd_test$final_bin)
+# table(yhat=predict(rForest,preprocessed_imputd_test),y=preprocessed_imputd_test$final_bin)#/nrow(preprocessed_imputd_test)
+
+#table(yhat=rForest$test$predicted,y=preprocessed_imputd_test$final_bin)#/nrow(preprocessed_imputd_test) *100
+#table(yhat=rForest$test$predicted,y=preprocessed_imputd_test$final_bin)
+confusionMatrix(rForest$predicted,reference=full_imputed$final_bin, positive="pos")
+
+
+#rf_test<-confusionMatrix(rForest$test$predicted,reference=preprocessed_imputd_test$final_bin, positive="pos" );rf_test
+
+```
+         Reference
+Prediction  neg  pos
+       neg 3805  965
+       pos  227  435
+       
+in the above, the false negatives are > true positives.  minimum of diagonal entry should be (435) > than maximum of off diagonal entry(965).
+
+
+```{r}
+simple_roc <- function(labels, scores){
+  labels <- labels[order(scores, decreasing=TRUE)]
+  data.frame(TPR=cumsum(labels)/sum(labels), FPR=cumsum(!labels)/sum(!labels), labels)
+}
+
+simple_roc(full_imputed$final_bin,rForest$predicted)
+
+```
+
+
+repeating same thing with class weight
+```{r}
+# wn
+# wn = sum(preprocessed_imputd$final_bin=="neg")/length(preprocessed_imputd$final_bin)
+# wy = 1
+# classwt = c("neg"=wn, "pos"=wy)
+# 
+# library(randomForest)
+# rForest2 <- randomForest(x=preprocessed_imputd[,-c(46)],
+#                         y=preprocessed_imputd$final_bin,
+#                         xtest=preprocessed_imputd_test[,-c(46)],
+#                         ytest=preprocessed_imputd_test$final_bin,
+#                         classwt = c("neg"=wn, "pos"=wy),
+#                         mtry=3,
+#                         ntree = 150,
+#                         importance = TRUE)
+# plot(rForest2)
+# 
+# confusionMatrix(rForest2$predicted,reference=preprocessed_imputd$final_bin, positive="pos")
+# rf_test2<-confusionMatrix(rForest2$test$predicted,reference=preprocessed_imputd_test$final_bin, positive="pos" );rf_test2
+```
+the above is likely incorrectly tuned because class imballance.
+The "randomForest" function in the "randomForest" R package supports the Balanced Random Forest. One need to specify the "strata" and the "sampsize" parameters to enable the balanced bootstrapping resampling.
+
+strata
+A (factor) variable that is used for stratified sampling.
+sampsize
+Size(s) of sample to draw. For classification, if sampsize is a vector of the length the number of strata, then sampling is stratified by strata, and the elements of sampsize indicate the numbers to be drawn from the strata.
+
+```{r}
+# w <- 1/table(preprocessed_imputd$final_bin)
+# w<- w/sum(w);w
+# weights <- rep(0, nrow(preprocessed_imputd))
+# weights[preprocessed_imputd$final_bin== "neg"] <- w['neg']
+# weights[preprocessed_imputd$final_bin== "pos"] <- w['pos']
+# table(weights, preprocessed_imputd$final_bin)
+# weights
+```
+
+
+
+#####trying with ranger
+```{r}
+library(ranger)
+w <- 1/table(full_imputed$final_bin)
+w<- w/sum(w)
+weights <- rep(0, nrow(full_imputed))
+weights[full_imputed$final_bin== "neg"] <- w['neg']
+weights[full_imputed$final_bin== "pos"] <- w['pos']
+table(weights, full_imputed$final_bin)
+weights
+
+
+##Sampling without replacement is important here, as otherwise samples from the smaller classes will contain many more repetitions, and the class will still be underrepresented.
+ranger1<- ranger(final_bin~.,full_imputed, case.weights=weights, replace=FALSE)
+ranger1
+ranger2<- ranger(final_bin~.,full_imputed, case.weights=weights, replace=TRUE)
+ranger2
+
+ranger2$predictions
+
+ranger3<- ranger(final_bin~.,full_imputed,  replace=TRUE)
+ranger3
+
+
+
+ranger1_test<-confusionMatrix(predict(ranger1,full_imputed)$predictions, reference= full_imputed$final_bin, positive="pos" );ranger1_test
+ranger2_training<-confusionMatrix(ranger2$predictions, reference= full_imputed$final_bin, positive="pos" );ranger2_training
+ranger3_test<-confusionMatrix(predict(ranger3,full_imputed)$predictions, reference= full_imputed$final_bin, positive="pos" );ranger3_test
+```
+
+
+
+
+--------------
+
+###boosted classification tree
+
+```{r}
+# 
+# gbmdata<-preprocessed_imputd 
+# gbmdata$final_bin<-as.numeric(gbmdata$final_bin)-1
+# set.seed(12345)
+# w<- 1/table(preprocessed_imputd$final_bin)
+# w
+# 
+# weights<- rep(0,nrow(preprocessed_imputd))
+# weights[preprocessed_imputd$final_bin == 0] <- w['0']
+# weights[preprocessed_imputd$final_bin == 1] <- w['1']
+# weights
+# 
+# 
+# 
+# Inc.gbm2 <- gbm(final_bin ~ .,
+#                 data=gbmdata,
+#                 distribution="bernoulli",
+#                 n.trees=5000,
+#                 weights = weights,
+#                 shrinkage=0.05,
+#                 interaction.depth=3,
+#                 bag.fraction = .5,
+#                 train.fraction = 1,
+#                 n.minobsinnode = 10,
+#                 cv.folds = 10,
+#                 keep.data=TRUE,
+#                 verbose=FALSE)
+# 
+# 
+# best.iter <- gbm.perf(Inc.gbm2,method="cv");best.iter
+# Inc.gbm2$cv.error[best.iter]
+# summary(Inc.gbm2,n.trees=best.iter)
+# Inc.gbm2$var.names
+# 
+# Inc.gbm2
+# 
+# Inc.gbm2$cv.error[best.iter]
+# #?gbm
+```
+
+
+```{r}
+# Inc.gbm2 <- gbm(final_bin ~ .,
+#                 data=gbmdata,
+#                 distribution="bernoulli",
+#                 n.trees=2000,
+#                 #weights = weights,
+#                 shrinkage=0.01,
+#                 interaction.depth=3,
+#                 bag.fraction = .5,
+#                 train.fraction = 1,
+#                 n.minobsinnode = 10,
+#                 cv.folds = 10,
+#                 keep.data=TRUE,
+#                 verbose=FALSE)
+# 
+# 
+# best.iter <- gbm.perf(Inc.gbm2,method="cv");best.iter
+# Inc.gbm2$cv.error[best.iter]
+# summary(Inc.gbm2,n.trees=best.iter)
+# Inc.gbm2$var.names
+# 
+# Inc.gbm2
+# 
+# Inc.gbm2$cv.error[best.iter]
+```
+
+interesting, the gbm model is working a little funky.
+
+
+trying it with caret
+```{r}
+# preprocessed_imputd$final_bin= factor(preprocessed_imputd$final_bin, levels=c('0','1'), labels=c("neg","pos"))
+# preprocessed_imputd_test$final_bin= factor(preprocessed_imputd_test$final_bin, levels=c('0','1'), labels=c("neg","pos"))
+# 
+# fitControl <- trainControl(## 10-fold CV
+#                            method = "cv",
+#                            number = 3,#nrow(FGL1),
+#                            #returnResamp = 'none',
+#                            classProbs = TRUE,
+#                            summaryFunction= twoClassSummary)
+#                            ## repeated ten times
+# 
+# gbm_tuning <-  expand.grid(n.trees = c(1000,2000), shrinkage=c(0.005,0.01, 0.02, .05, .1), interaction.depth=c(2,3,4),n.minobsinnode=c(10))
+# 
+# gbm_1 <- train(
+#   x= preprocessed_imputd[,-c(46)],
+#   y=preprocessed_imputd$final_bin,
+#   method = "gbm",
+#   bag.fraction = .5,
+#   distribution="bernoulli",
+#   verbose=FALSE,
+#   metric="Spec",
+#   trControl = fitControl,
+#   tuneGrid= gbm_tuning)
+# 
+# preprocessed_imputd$final_bin
+# 
+# gbm_1$results %>% arrange(-Spec)
+# 
+# confusionMatrix(gbm_1,positive="pos",mode="everything")
+# #confusionMatrix(predict(gbm_1,preprocessed_imputd),reference=preprocessed_imputd$final_bin, positive="pos" )
+# gbm_test<-confusionMatrix(predict(gbm_1,preprocessed_imputd_test),reference=preprocessed_imputd_test$final_bin, positive="pos" );gbm_test
+```
+
+```{r}
+# 
+# gbmdata<-preprocessed_imputd 
+# gbmdata$final_bin<-as.numeric(gbmdata$final_bin)-1
+# set.seed(12345)
+# w<- 1/table(preprocessed_imputd$final_bin)
+# w
+# 
+# weights<- rep(0,nrow(preprocessed_imputd))
+# weights[preprocessed_imputd$final_bin == 0] <- w['0']
+# weights[preprocessed_imputd$final_bin == 1] <- w['1']
+# weights
+# 
+# Inc.gbm3 <- gbm(final_bin ~ .,
+#                 data=gbmdata,
+#                 distribution="bernoulli",
+#                 n.trees=2000,
+#                 #weights = weights,
+#                 shrinkage=0.05,
+#                 interaction.depth=2,
+#                 bag.fraction = .5,
+#                 train.fraction = 1,
+#                 n.minobsinnode = 10,
+#                 cv.folds = 10,
+#                 keep.data=TRUE,
+#                 class.stratify.cv = TRUE,
+#                 verbose=FALSE)
+# 
+# 
+# best.iter <- gbm.perf(Inc.gbm3,method="cv");best.iter
+# Inc.gbm3$cv.error[best.iter]
+# summary(Inc.gbm3,n.trees=best.iter)
+# Inc.gbm3$var.names
+# 
+# ?gbm
+# 
+# 
+# yhat.Inc.gbm3<-predict(Inc.gbm3,newdata=gbmdata,n.trees=best.iter, type="response");yhat.Inc.gbm3
+# 
+# predict(Inc.gbm3,gbmdata, type="")
+# 
+# confusionMatrix(predict(Inc.gbm3$,preprocessed_imputd_test),reference=preprocessed_imputd_test$final_bin)
+```
+
+---
+### neural network
+---
+```{r}
+# control <- trainControl(method = "repeatedcv",
+#                      number = 10,
+#                      repeats = 5,
+#                      classProbs = TRUE,
+#                      verboseIter = FALSE,
+#                      sampling= "down", #comparing up vs smote
+#                      summaryFunction= twoClassSummary
+#                      )
+# 
+# metric<-"Spec"
+# #9 nnet
+# set.seed(12345)
+# #tuning <-  expand.grid(decay = c(0.01,0.05, 0.1, 0.5), size=c(5, 10, 15, 40))
+# tuning <-  expand.grid(decay = c(0.01,0.5, 1, 5), size=c(5,15, 25, 35))
+# cl <- makePSOCKcluster(cores)
+# registerDoParallel(cl)
+# m_nnet4 <- train(x= preprocessed_imputd[,-c(46)],
+#                  y=preprocessed_imputd$final_bin,
+#                  method="nnet",
+#                  metric=metric,
+#                  trControl=control,
+#                  tuneGrid=tuning,
+#                  trace=F )
+# stopCluster(cl)
+# 
+# 
+# m_nnet4$results %>% arrange(-Spec)
+# predict(m_nnet4, preprocessed_imputd_test)
+# 
+# confusionMatrix(m_nnet4, positive="pos")
+# 
+# #doSNOW::registerDoSNOW()
+# nnet_test<-confusionMatrix(predict(m_nnet4,preprocessed_imputd_test),reference=preprocessed_imputd_test$final_bin, positive="pos" );nnet_test
+```
+
+
+trying with smote--- made no real difference
+```{r}
+# control <- trainControl(method = "repeatedcv",
+#                      number = 10,
+#                      repeats = 5,
+#                      classProbs = TRUE,
+#                      verboseIter = FALSE,
+#                      sampling= "down", #comparing up vs smote
+#                      summaryFunction= twoClassSummary
+#                      )
+# 
+# set.seed(12345)
+# metric<-"Sens"
+# #tuning <-  expand.grid(decay = c(0.01,0.05, 0.1, 0.5), size=c(5, 10, 15, 40))
+# tuning <-  expand.grid(decay = c(0.01,0.5, 1, 5), size=c(5,15, 25, 35))
+# cl <- makePSOCKcluster(cores)
+# registerDoParallel(cl)
+# m_nnet_smote <- train(x= preprocessed_imputd[,-c(46)],
+#                  y=preprocessed_imputd$final_bin,
+#                  method="nnet",
+#                  metric=metric,
+#                  trControl=control,
+#                  tuneGrid=tuning,
+#                  trace=F )
+# stopCluster(cl)
+# 
+# 
+# m_nnet4$results %>% arrange(-Spec)
+#  predict(m_nnet_smote, preprocessed_imputd_test)
+# 
+# confusionMatrix(m_nnet_smote, positive="pos")
+# 
+# 
+# 
+# #doSNOW::registerDoSNOW()
+# # nnet_test2<-confusionMatrix(predict(m_nnet_smote,preprocessed_imputd_test),reference=preprocessed_imputd_test$final_bin, positive="pos" );nnet_test2
+```
+
+
+
+
+notes:
+
+lets go back to clinical problem. clinical problem: # of patients whose culture is negative but have a true infection not captured by regular culture. and a group of patient with neg culture which are indeed not infected (but are given prolonged antibiotics). 
+
+way we are training this model: predict who will have a true infection. patients we are using as cases to fit model: patients who have positive infection. we will then use 
+need high sensitivity and negative predictive value, so we are not calling a lot of false negatives. if has low specificity but high sensitivity, when we apply to group who will routinely recieving antibitiocis, we can stratify patients by likelyhood of having a true infection and thus tailor antibiotic course. 
+
+
+try specifying class ratio in down sampling. Some of the variables are 
+
+
+###change factor ordering. 
+
+
+
+
+
+
+##summarizing 2classification results.
+
+```{r}
+# confusionMatrix(logit_1, positive="pos")
+# rf_test<-confusionMatrix(rForest$test$predicted,reference=preprocessed_imputd_test$final_bin, positive="pos" );rf_test
+# ranger1_test<-confusionMatrix(predict(ranger1,preprocessed_imputd_test)$predictions, reference= preprocessed_imputd_test$final_bin, positive="pos" );ranger1_test
+# gbm_test<-confusionMatrix(predict(gbm_1,preprocessed_imputd_test),reference=preprocessed_imputd_test$final_bin, positive="pos" );gbm_test
+# nnet_test<-confusionMatrix(predict(m_nnet4,preprocessed_imputd_test),reference=preprocessed_imputd_test$final_bin, positive="pos" );nnet_test
+# nnet_test2<-confusionMatrix(predict(m_nnet_smote,preprocessed_imputd_test),reference=preprocessed_imputd_test$final_bin, positive="pos" );nnet_test2
+```
+
+
+
+```{r}
+# confusionMatrix(logit_1, positive="pos")
+# rf_test<-confusionMatrix(rForest$test$predicted,reference=preprocessed_imputd_test$final_bin, positive="pos" );rf_test
+# ranger1_test<-confusionMatrix(predict(ranger1,preprocessed_imputd_test)$predictions, reference= preprocessed_imputd_test$final_bin, positive="pos" );ranger1_test
+# gbm_test<-confusionMatrix(predict(gbm_1,preprocessed_imputd_test),reference=preprocessed_imputd_test$final_bin, positive="pos" );gbm_test
+# nnet_test<-confusionMatrix(predict(m_nnet4,preprocessed_imputd_test),reference=preprocessed_imputd_test$final_bin, positive="pos" );nnet_test
+# nnet_test2<-confusionMatrix(predict(m_nnet_smote,preprocessed_imputd_test),reference=preprocessed_imputd_test$final_bin, positive="pos" );nnet_test2
+```
+
+#### important variables
+```{r}
+# varImp(gbm_1)
+# varImp(rf_1)
+# varImp(logit_1)
+# 
+# important_variables<-c("temperature","sysbp","daily_sofa","meanartpress","bun","platelet","ptt","heartrate","pao2fio2Ratio","creatinine","diasbp","first_admit_age")
+```
+
+
+-------PCA---------
+```{r}
+# factor_vec_2class<-names(preprocessed_imputd[,sapply(preprocessed_imputd, is.factor)])
+# pca_data_2class<-preprocessed_imputd[,!names(preprocessed_imputd) %in% factor_vec_2class]
+# #
+# PCA_2class<-prcomp(as.matrix(pca_data_2class), scale=FALSE)
+# 
+# summary(PCA_2class)
+# sd(pca_data_2class$bilirubin)
+# #prcomp(as.matrix(pca_data), scale = TRUE) %>% summary()
+# 
+# df_out_2class<- as.data.frame(PCA_2class$x)
+# df_out_2class$group<- preprocessed_imputd$final_bin
+# 
+# #par(mfrow=c(3,2))
+# p1<-ggplot(df_out_2class, aes(x=PC1, y=PC2, color=group)) +geom_point()
+# p2<-ggplot(df_out_2class, aes(x=PC1, y=PC3, color=group)) +geom_point()
+# p3<-ggplot(df_out_2class, aes(x=PC2, y=PC3, color=group)) +geom_point()
+# 
+# grid.arrange(p1,p2,p3, nrow=2)
+
+```
+
+
+
+
+
+
+
+
+
+-----------4 CLASS MODEL BUILDING------------------
+
+
+
+```{r}
+# #converting names to be used in caret
+# full_imputed$final_bin<-factor(full_imputed$final_bin, levels=c("C_neg/A_full","C_neg/A_partial","C_pos/A_full"), labels=c("C_neg.A_full","C_neg.A_partial","C_pos.A_full"))
+# full_imputed_test$final_bin<-factor(full_imputed_test$final_bin, levels=c("C_neg/A_full","C_neg/A_partial","C_pos/A_full"), labels=c("C_neg.A_full","C_neg.A_partial","C_pos.A_full"))
+```
+
+
+
+#### ranger rf
+
+repeating same thing with class weight
+```{r}
+# table(full_imputed$final_bin)
+# 
+# library(ranger)
+# 
+# w2 <- 1/table(full_imputed$final_bin)
+# w2<- w2/sum(w2)
+# w2
+# weights2 <- rep(0, nrow(full_imputed))
+# weights2[full_imputed$final_bin== "C_neg.A_full"] <- w2['C_neg.A_full']
+# weights2[full_imputed$final_bin== "C_neg.A_partial"] <- w2['C_neg.A_partial']
+# weights2[full_imputed$final_bin== "C_pos.A_full"] <- w2['C_pos.A_full']
+# table(weights2, full_imputed$final_bin)
+# weights2
+# table(full_imputed$final_bin)
+# 
+# ##Sampling without replacement is important here, as otherwise samples from the smaller classes will contain many more repetitions, and the class will still be underrepresented. 
+# ranger3.1<- ranger(final_bin~.,full_imputed, case.weights=weights2, replace=FALSE, keep.inbag = FALSE); ranger3.1
+# ranger3.1<- ranger(final_bin~.,full_imputed, case.weights=weights2)# replace=FALSE)
+# ranger3.1
+# 
+# 
+# table(full_imputed_test$final_bin,full_imputed_test$final_bin)
+# ranger3.1_test<-confusionMatrix(predict(ranger3.1,full_imputed_test)$predictions, reference= full_imputed_test$final_bin );ranger3.1_test
+
+```
+
+
+#### NNET
+```{r}
+# 
+# control <- trainControl(method = "repeatedcv",
+#                      number = 10,
+#                      repeats = 5,
+#                      classProbs = TRUE,
+#                      verboseIter = FALSE,
+#                      sampling= "down", #comparing up vs smote
+#                      summaryFunction= multiClassSummary
+#                      )
+# 
+# set.seed(12345)
+# metric<-"F1"
+# #tuning <-  expand.grid(decay = c(0.01,0.05, 0.1, 0.5), size=c(5, 10, 15, 40))
+# tuning <-  expand.grid(decay = c(0.01,0.5, 1, 5), size=c(5,15, 25, 35))
+# cl <- makePSOCKcluster(cores)
+# registerDoParallel(cl)
+# m_nnet_full <- train(x= full_imputed[,-c(46)],
+#                  y=full_imputed$final_bin,
+#                  method="nnet",
+#                  metric=metric,
+#                  trControl=control,
+#                  tuneGrid=tuning,
+#                  trace=F )
+# stopCluster(cl)
+# 
+# m_nnet_full$results %>% arrange(logLoss)
+#  # predict(m_nnet_smote, preprocessed_imputd_test)
+# 
+# confusionMatrix(m_nnet_full)
+# 
+# table(full_imputed$final_bin)
+# 
+# 
+# 
+# #doSNOW::registerDoSNOW()
+# 
+# m_nnet_full_test<-confusionMatrix(predict(m_nnet_full,full_imputed_test),reference=full_imputed_test$final_bin, positive="pos" );m_nnet_full_test
+```
+
+
+
+
+
+
+##### results summary
+
+
+```{r}
+# table(full_imputed_test$final_bin,full_imputed_test$final_bin)
+# ranger3.1_test<-confusionMatrix(predict(ranger3.1,full_imputed_test)$predictions, reference= full_imputed_test$final_bin );ranger3.1_test
+# m_nnet_full_test
+```
+
+
+----PCA-----
+
+
+```{r}
+full_imputed
+table(full_imputed$final_bin)
+
+factor_vec<-names(full_imputed[,sapply(full_imputed, is.factor)])
+pca_data<-full_imputed[,!names(full_imputed) %in% factor_vec]
+#
+#pca_data[,2:ncol(pca_data)]
+
+#pca_data=pca_data[,!names(pca_data)%in% c("icustay_id","height","first_admit_age","weight")]
+
+PCA<-prcomp(as.matrix(pca_data[,2:ncol(pca_data)]), scale=FALSE)
+
+summary(PCA)
+#prcomp(as.matrix(pca_data), scale = TRUE) %>% summary()
+
+df_out<- as.data.frame(PCA$x)
+df_out$group<- full_imputed$final_bin
+
+par(mfrow=c(2,2))
+p1<-ggplot(df_out, aes(x=PC1, y=PC2, color=group)) +geom_point()
+p2<-ggplot(df_out, aes(x=PC1, y=PC3, color=group)) +geom_point()
+p3<-ggplot(df_out, aes(x=PC2, y=PC3, color=group)) +geom_point()
+p4<-ggplot(df_out, aes(x=PC3, y=PC4, color=group)) +geom_point()
+
+grid.arrange(p1,p2,p3,p4, nrow=2)
+```
+
+
+```{r}
+# important_variables<-c("temperature","sysbp","daily_sofa","meanartpress","bun","platelet","ptt","heartrate","pao2fio2Ratio","creatinine","first_admit_age")
+# #important_variables<-c("temperature","sysbp","daily_sofa","meanartpress","bun")
+# 
+# table(full_imputed$final_bin)
+# 
+# factor_vec<-names(full_imputed[,sapply(full_imputed, is.factor)])
+# pca_data<-full_imputed[,!names(full_imputed) %in% factor_vec]
+# pca_data<-pca_data[,names(pca_data) %in% important_variables]
+# 
+# #
+# PCA<-prcomp(as.matrix(pca_data), scale=FALSE)
+# 
+# summary(PCA)
+# 
+# df_out<- as.data.frame(PCA$x)
+# df_out$group<- full_imputed$final_bin
+# 
+# ggplot(df_out, aes(x=PC1, y=PC2, color=group)) +geom_point()
+
+```
+
+why is this streaky?
+
+
+2variable:
+
+```{r}
+# factor_vec_2class<-names(preprocessed_imputd[,sapply(preprocessed_imputd, is.factor)])
+# pca_data_2class<-preprocessed_imputd[,!names(preprocessed_imputd) %in% factor_vec_2class]
+# pca_data_2class<-pca_data_2class[,names(pca_data_2class) %in% important_variables]
+# #
+# PCA_2class<-prcomp(as.matrix(pca_data_2class), scale=FALSE)
+# 
+# summary(PCA_2class)
+# sd(pca_data_2class$bilirubin)
+# #prcomp(as.matrix(pca_data), scale = TRUE) %>% summary()
+# 
+# df_out_2class<- as.data.frame(PCA_2class$x)
+# df_out_2class$group<- preprocessed_imputd$final_bin
+# 
+# #par(mfrow=c(3,2))
+# p1<-ggplot(df_out_2class, aes(x=PC1, y=PC2, color=group)) +geom_point()
+# p2<-ggplot(df_out_2class, aes(x=PC1, y=PC3, color=group)) +geom_point()
+# p3<-ggplot(df_out_2class, aes(x=PC2, y=PC3, color=group)) +geom_point()
+# 
+# grid.arrange(p1,p2,p3, nrow=2)
+# 
+# print(PCA_2class$rotation, cutoff=0.3)
+
+
+
+
+```
+
+
+
+
+
+
+---------CLUSTERING----------
+
+```{r}
+# library(mclust)
+# library(cluster) 
+# library(psych)
+# glimpse(full_imputed)
+# 
+# 
+# ####3 class clustering solution
+# pca_data
+# 
+# # principal(as.matrix(pca_data), scale=FALSE, rotation="none")
+# # principal(cor(as.matrix(pca_data)), nfactors=3)
+# 
+# # cluster using mclust
+# m.full.fit = Mclust(pca_data)
+# plot(m.full.fit)
+# 
+# 
+# k.full.fit<-kmeans(pca_data, centers=3)
+# k.full.fit
+# 
+# #not useful, clustering off PCA components.
+# clusplot(pca_data,k.full.fit$cluster )
+
+```
+
+
+
+
+
+```{r class notes}
+#use python, sklearn is mainstream.
+
+#downsampling will work ~~ as well and be easier to learn. 
+
+#class weights
+
+
+# T SNE or PCA for feature visualization. to see if features are sufficient for seperation. 
+
+# sometimes a little visualization can help see how difficult the classification problem is.
+#maybe need additional features or feature transformation
+#looking at clusters for above techniques and how well seperated they are. 
+
+
+#dimensionality:
+#T SNE doesn't assume linear association, whereas PCA assumes a linear correlation. 
+
+##ie spectral clustering transformation.
+
+```
+
+
+
+
+
+
+notes:
+
+lets go back to clinical problem. clinical problem: # of patients whose culture is negative but have a true infection not captured by regular culture. and a group of patient with neg culture which are indeed not infected (but are given prolonged antibiotics). 
+
+way we are training this model: predict who will have a true infection. patients we are using as cases to fit model: patients who have positive infection. we will then use 
+need high sensitivity and negative predictive value, so we are not calling a lot of false negatives. if has low specificity but high sensitivity, when we apply to group who will routinely recieving antibitiocis, we can stratify patients by likelyhood of having a true infection and thus tailor antibiotic course. 
+
+
+try specifying class ratio in down sampling. Some of the variables are 
+
+
+###change factor ordering. 
+
+
+
+approach as a.
+
+
+
+try a longitudinal approach:
+impute with last one carry forward.
+lal
+
+
+hybrid approach:
+
+variables lackign longitudinal dimension: treat them as static.
+variables that have longitudinal nature: can use imputation methods to fill in. 
+
+sampling frequency:
+
+need to visualize current data. need to see matrix of patient by time. 
+
+for each variable visualize the patient by time matrix. 
+
+important_variables<-c("temperature","sysbp","daily_sofa","meanartpress","bun","platelet","ptt","heartrate","pao2fio2Ratio","creatinine","first_admit_age").
