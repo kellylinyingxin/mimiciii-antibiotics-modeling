@@ -36,6 +36,8 @@ dim(final_pt)
 final_pt
 ```
 
+
+
 ```{r}
 glimpse(newagg)
 
@@ -44,6 +46,10 @@ glimpse(newagg)
 #newagg <- subset(newagg, select = -c("ptp_bands","std_bands","", ))
 ```
 
+
+```{r}
+
+```
 
 ```{r some quick data cleaning and housekeeping}
 
