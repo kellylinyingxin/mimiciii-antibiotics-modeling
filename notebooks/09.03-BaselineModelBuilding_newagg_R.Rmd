@@ -1,12 +1,12 @@
 ---
-title: "model_building_pa_project"
+title: "model_building_prolongedAB_project"
 output:
   html_document: default
   pdf_document: default
 ---
 
 
-###note: 04-15-19 this is 
+###note: 04-15-19 this is model building worksheet for using median, range, and std of values, where the values are now normalized to a "healthy" population. x-median /IQR where meadian and IQR were calculated for the last 24 hours of ab_partial/culture-neg patients. 
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, cache=FALSE, comment="  ", prompt = TRUE)
@@ -49,32 +49,6 @@ glimpse(data)
 ```
 
 
-# visualizing data
-```{r}
-# scale(log(data[,log_transform_names]))
-# 
-# preprocessed<- preProcess(data_2class[,c(2:47)], method = c("center","scale")) #convert to z-scores
-# predict(preprocessed, newdata= data[,c(2:47)])
-```
-
-
-###log scaling and normalizing functions
-```{r}
-# norm_and_transform<- function(data, label1="neg", label2="1"){
-#   data %>% 
-#   select_if(is.numeric) %>% 
-#   select(-c("daily_sofa","icustay_id")) %>%
-#   names() -> log_transform_names
-#   
-#   data[,log_transform_names]= log(data[,log_transform_names])
-#   # preprocessed_imputed<-data
-#   
-#   preprocessed<- preProcess(data_2class[,c(2:47)], method = c("center","scale")) #convert to z-scores
-#   preprocessed_imputd<-predict(preprocessed, newdata= data[,c(2:47)])
-#   
-#   return(preprocessed_imputd)
-# }
-```
 
 ```{r}
 factor_convert<- function(preprocessed_imputd, level_number=2, level1='C_neg/A_partial', level2='C_pos/A_full', label1= "neg", label2="pos"){
@@ -88,7 +62,7 @@ factor_convert<- function(preprocessed_imputd, level_number=2, level1='C_neg/A_p
 ```
 
 
-### log transforming, normalizing, and fixing logical -> factors
+### fixing logical -> factors
 ```{r}
 # # norm_and_transform(data)
 #full_imputed<- norm_and_transform(data)
@@ -105,14 +79,96 @@ table(full_imputed$final_bin)
 # preprocessed_imputd_test<-factor_convert(preprocessed_imputd_test)
 ```
 
+### dropping varibles
+
+```{r}
+icustay_id= full_imputed$icustay_id
+full_imputed<-full_imputed[,!names(full_imputed) %in% c("height","icustay_id")]
+
+#removing icustay id and keeping as a seperate vector
+```
+
+
+
+# visualizing data
 
 ```{r}
 library(skimr)
 # skim(data)
-skim(full_imputed)
+skim(full_imputed.lapply(log(+1)))
+#glimpse(full_imputed)
+is.numeric(full_imputed)
+
+
+full_imputed_numeric<-full_imputed[,names(full_imputed[,sapply(full_imputed, is.double)])]
+#full_imputed_numeric<-full_imputed_numeric[,names(full_imputed_numeric[,sapply(full_imputed, is.integer)==FALSE])]
+
+
+summary(full_imputed_numeric)
+
+full_log_numeric<-log(full_imputed_numeric+1.1)
+skim(full_log_numeric)
+full_log_numeric[is.na(full_log_numeric)] =0
+
+skim(full_log_numeric)
+skim(full_imputed_numeric)
+
+log()
+
+#ok weird, mean_creatinine max is greater than ptp_creatinine max. oh right, the range is just max-min. 
+
+full_imputed_numeric[full_imputed_numeric['ptp_creatinine']==13.11111,c('ptp_creatinine',"mean_creatinine","std_creatinine")]
+
+max(full_imputed_numeric[c('ptp_creatinine')]) #
+
+full_imputed_numeric[full_imputed_numeric['ptp_creatinine']==max(full_imputed_numeric[c('ptp_creatinine')]),c('ptp_creatinine',"mean_creatinine","std_creatinine") ]
+full_imputed_numeric[full_imputed_numeric['mean_creatinine']==max(full_imputed_numeric[c('mean_creatinine')]),c('ptp_creatinine',"mean_creatinine","std_creatinine") ]
+
+icustay_id[1833] 
+
+##need to explore:
+#  #icustay id:248526
+# ptp_creatinine: 1.666667
+# mean_creatinine: 15.40741
+# std_creatinine:0.9049475
+
+ 
+ #  #icustay id:233363
+# ptp_creatinine: 13.11111
+# mean_creatinine: 9.574074
+# std_creatinine:5.281889
+
+
+##explore relationship between creatinine ptp and std
+
+range_std=full_imputed_numeric['ptp_creatinine']/full_imputed_numeric['std_creatinine']
+range_std
+ggplot(range_std, aes(x=ptp_creatinine)) + geom_density() 
+
+ggplot(full_imputed_numeric, aes(x=ptp_creatinine)) + geom_density() 
+ggplot(full_imputed_numeric, aes(x=std_creatinine)) + geom_density() 
+
 ```
 
+```{r}
+
+```
+
+
 preprocessing transform methods in caret: https://machinelearningmastery.com/pre-process-your-dataset-in-r/
+
+```{r}
+names(full_imputed)
+for (element in names(full_imputed)){
+  print(ggplot(full_imputed, aes(x=element)) + geom_density() )
+}
+
+ggplot(full_imputed, aes(x=ptp_wbc)) + geom_density() 
+ggplot(full_imputed, aes(x=mean_bilirubin)) + geom_density() 
+
+mean_bilirubin
+```
+
 
 
 -----------2 CLASS MODEL BUILDING------------------
