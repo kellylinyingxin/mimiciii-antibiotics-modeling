@@ -37,6 +37,7 @@ cores<- 5 #number of parallel processing clusters,
 
 ```{r}
 glimpse(data)
+
 ```
 
 
@@ -47,6 +48,9 @@ glimpse(data)
 # 
 # data_2class<-subset(data, final_bin %in% c('C_pos/A_full',"C_neg/A_partial"))
 # data_test_2class<-subset(data_test, final_bin %in% c('C_pos/A_full',"C_neg/A_partial"))
+```
+```{r}
+log(8)
 ```
 
 
@@ -84,19 +88,46 @@ table(full_imputed$final_bin)
 
 ```{r preprocessing}
 #converting weight and first_admit age to the median/iqr based zscore
-weight_median=median(full_imputed[full_imputed$final_bin=='neg',"weight"])
-weight_iqr=IQR(full_imputed[full_imputed$final_bin=='neg',"weight"])
+weight_median=median(log(full_imputed[full_imputed$final_bin=='neg',"weight"]+1))
+weight_iqr=IQR(log(full_imputed[full_imputed$final_bin=='neg',"weight"]+1))
 
-age_median=median(full_imputed[full_imputed$final_bin=='neg',"first_admit_age"])
-age_iqr=IQR(full_imputed[full_imputed$final_bin=='neg',"first_admit_age"])
+age_median=median(log(full_imputed[full_imputed$final_bin=='neg',"first_admit_age"]+1))
+age_iqr=IQR(log(full_imputed[full_imputed$final_bin=='neg',"first_admit_age"]+1))
 
-full_imputed$weight=(full_imputed$weight - weight_median)/weight_iqr
-full_imputed$first_admit_age=(full_imputed$first_admit_age - age_median)/age_iqr
+full_imputed$weight=(log(full_imputed$weight+1) - weight_median)/weight_iqr
+full_imputed$first_admit_age=(log(full_imputed$first_admit_age+1) - age_median)/age_iqr
+
+
+####If a log transformation of the data is appropriate then you should typically do the transformation on the original data first, whatever you call that process.
+
+# weight_median=median(log(full_imputed[full_imputed$final_bin=='neg',"weight"]))
+# weight_iqr=IQR((full_imputed[full_imputed$final_bin=='neg',"weight"]))
+# 
+# age_median=median((full_imputed[full_imputed$final_bin=='neg',"first_admit_age"]))
+# age_iqr=IQR(full_imputed[full_imputed$final_bin=='neg',"first_admit_age"])
+# 
+# full_imputed$weight=(log(full_imputed$weight +1) - log(weight_median+1))/log(weight_iqr+1)
+# full_imputed$first_admit_age=(log(full_imputed$first_admit_age+1) - log(age_median+1))/log(age_iqr+1)
+# 
+# log(77)
+
+
+# 
+# weight_median=median((full_imputed[full_imputed$final_bin=='neg',"weight"]))
+# weight_iqr=IQR((full_imputed[full_imputed$final_bin=='neg',"weight"]))
+# 
+# age_median=median((full_imputed[full_imputed$final_bin=='neg',"first_admit_age"]))
+# age_iqr=IQR(full_imputed[full_imputed$final_bin=='neg',"first_admit_age"])
+# 
+# full_imputed$weight=((full_imputed$weight) - weight_median)/weight_iqr
+# full_imputed$first_admit_age=((full_imputed$first_admit_age) - age_median)/age_iqr
 
 #removing icustay id and keeping as a seperate vector
 icustay_id= full_imputed$icustay_id
 full_imputed<-full_imputed[,!names(full_imputed) %in% c("icustay_id")]
 
+full_imputed[is.na(full_imputed)] <- 0
+full_imputed$first_admit_age
 ```
 
 
@@ -163,6 +194,13 @@ full_imputed<-full_imputed[,!names(full_imputed) %in% c("icustay_id")]
 ```{r}
 library(skimr)
 skim(full_imputed)
+
+exp(log(5))
+full_imputed$median_meanartpress
+exp(full_imputed$median_meanartpress)
+
+mean(exp(full_imputed$median_meanartpress)-1)
+mean(full_imputed$median_meanartpress)
 ```
 
 
@@ -396,8 +434,13 @@ training rf on a different classification parameter, logloss. Log Loss is like a
 # 
 library(randomForest)
 set.seed(12345)
+w <- 1/table(full_imputed$final_bin)
+w<- w/sum(w)
 rForest <- randomForest(x=full_imputed[,!names(full_imputed) %in%c("icustay_id","final_bin")],
                         y=full_imputed$final_bin,
+                        replace=FALSE,
+                        #localImp = weights,
+                        #classwt=w,
                         # xtest=preprocessed_imputd_test[,-c(46)],
                         # ytest=preprocessed_imputd_test$final_bin,
                         mtry=6,
@@ -413,6 +456,7 @@ rForest$importance
 varImpPlot(rForest)
 #varImpPlot(rForest)$
 
+?randomForest
 
 # table(yhat=predict(rForest,preprocessed_imputd_test),y=preprocessed_imputd_test$final_bin)
 # table(yhat=predict(rForest,preprocessed_imputd_test),y=preprocessed_imputd_test$final_bin)#/nrow(preprocessed_imputd_test)
@@ -496,10 +540,10 @@ weights[full_imputed$final_bin== "pos"] <- w['pos']
 table(weights, full_imputed$final_bin)
 weights
 
-
+?ranger
 ##Sampling without replacement is important here, as otherwise samples from the smaller classes will contain many more repetitions, and the class will still be underrepresented.
 ranger1<- ranger(final_bin~.,full_imputed, case.weights=weights, replace=FALSE)
-ranger1
+ranger1 #performed the best!
 ranger2<- ranger(final_bin~.,full_imputed, case.weights=weights, replace=TRUE)
 ranger2
 
@@ -510,10 +554,49 @@ ranger3
 
 
 
-ranger1_test<-confusionMatrix(predict(ranger1,full_imputed)$predictions, reference= full_imputed$final_bin, positive="pos" );ranger1_test
+ranger1_training<-confusionMatrix(ranger1$predictions, reference= full_imputed$final_bin, positive="pos" );ranger1_training
 ranger2_training<-confusionMatrix(ranger2$predictions, reference= full_imputed$final_bin, positive="pos" );ranger2_training
-ranger3_test<-confusionMatrix(predict(ranger3,full_imputed)$predictions, reference= full_imputed$final_bin, positive="pos" );ranger3_test
+ranger3_training<-confusionMatrix(ranger3$predictions, reference= full_imputed$final_bin, positive="pos" );ranger3_training
 ```
+
+#auc
+```{r}
+library(pROC)
+# predictions_c <- predict(object=ranger1, full_imputed)#$predictions
+# 
+# predictions <- predict(object=ranger1_prob, full_imputed)
+# predictions$predictions[,2]
+# 
+# ranger_roc=roc(ifelse(full_imputed[,"final_bin"] == "pos", 1, 0), predictions$predictions[,2])
+# plot(ranger_roc)
+# 
+# predictions$predictions[,1]
+# 
+# #roc(response=ifelse(full_imputed[,"final_bin"] == "pos", 1, 0), predictor=predictions$predictions[,2], percent=TRUE)
+# plot(roc(response=full_imputed$final_bin, predictor=round(predictions$predictions[,1],2), smooth=TRUE))
+# 
+# full_imputed$final_bin
+# #pred <- prediction(ranger1$predictions, as.numeric(full_imputed$final_bin))
+# plot(ifelse(full_imputed[,"final_bin"] == "pos", 1, 0),predictions$predictions[,2])
+# 
+# pred <- prediction(labels=ifelse(full_imputed[,"final_bin"] == "pos", 1, 0),predictions$predictions[,2])
+
+library(ROCR)
+ranger1_prob<- ranger(final_bin~.,full_imputed, case.weights=weights, replace=FALSE,probability = T)
+
+##works but only get ridgid roc
+pred<-prediction(as.numeric(ranger1$predictions),as.numeric(ifelse(full_imputed[,"final_bin"] == "pos", 2, 1)) )
+perf <- performance(pred,"tpr","fpr")
+plot(perf,colorize=TRUE)
+
+
+#jesus finally got this to work.
+pred<-prediction(ranger1_prob$predictions[,2],(ifelse(full_imputed[,"final_bin"] == "pos", 2, 1)) )
+perf <- performance(pred,"tpr","fpr")
+plot(perf,colorize=TRUE)
+
+```
+
 
 
 
@@ -523,45 +606,219 @@ ranger3_test<-confusionMatrix(predict(ranger3,full_imputed)$predictions, referen
 ###boosted classification tree
 
 ```{r}
-# 
-# gbmdata<-preprocessed_imputd 
-# gbmdata$final_bin<-as.numeric(gbmdata$final_bin)-1
-# set.seed(12345)
-# w<- 1/table(preprocessed_imputd$final_bin)
-# w
-# 
-# weights<- rep(0,nrow(preprocessed_imputd))
-# weights[preprocessed_imputd$final_bin == 0] <- w['0']
-# weights[preprocessed_imputd$final_bin == 1] <- w['1']
-# weights
-# 
-# 
-# 
-# Inc.gbm2 <- gbm(final_bin ~ .,
-#                 data=gbmdata,
-#                 distribution="bernoulli",
-#                 n.trees=5000,
-#                 weights = weights,
-#                 shrinkage=0.05,
-#                 interaction.depth=3,
-#                 bag.fraction = .5,
-#                 train.fraction = 1,
-#                 n.minobsinnode = 10,
-#                 cv.folds = 10,
-#                 keep.data=TRUE,
-#                 verbose=FALSE)
-# 
-# 
-# best.iter <- gbm.perf(Inc.gbm2,method="cv");best.iter
-# Inc.gbm2$cv.error[best.iter]
-# summary(Inc.gbm2,n.trees=best.iter)
-# Inc.gbm2$var.names
-# 
-# Inc.gbm2
-# 
-# Inc.gbm2$cv.error[best.iter]
-# #?gbm
+
+gbmdata<-full_imputed
+gbmdata$final_bin<-as.numeric(gbmdata$final_bin)-1
+set.seed(12345)
+w<- 1/table(full_imputed$final_bin)
+w
+weights <- rep(0, nrow(full_imputed))
+weights[full_imputed$final_bin== "neg"] <- w['neg']
+weights[full_imputed$final_bin== "pos"] <- w['pos']
+table(weights, full_imputed$final_bin)
+weights
+
+?gbm
+
+
+Inc.gbm2 <- gbm(final_bin ~ .,
+                data=gbmdata,
+                distribution="bernoulli",
+                n.trees=5000,
+                weights = weights,
+                shrinkage=0.05,
+                interaction.depth=3,
+                bag.fraction = .5,
+                train.fraction = 1,
+                n.minobsinnode = 10,
+                cv.folds = 10,
+                keep.data=TRUE,
+                verbose=FALSE)
+
+
+best.iter <- gbm.perf(Inc.gbm2,method="cv");best.iter
+Inc.gbm2$cv.error[best.iter]
+summary(Inc.gbm2,n.trees=best.iter)
+Inc.gbm2$var.names
+
+Inc.gbm2
+
+Inc.gbm2$cv.error[best.iter]
+#?gbm
 ```
+
+```{r}
+Inc.gbm1 <- gbm(final_bin ~ .,
+                data=gbmdata,
+                distribution="bernoulli",
+                n.trees=2000,
+                weights = weights,
+                shrinkage=0.05,
+                interaction.depth=3,
+                bag.fraction = .5,
+                train.fraction = 1,
+                n.minobsinnode = 10,
+                cv.folds = 10,
+                keep.data=TRUE,
+                verbose=FALSE)
+```
+
+```{r}
+best.iter
+best.iter1 <- gbm.perf(Inc.gbm1,method="cv");best.iter
+Inc.gbm1$cv.error[best.iter]
+Inc.gbm1$cv.error#[325]
+
+Inc.gbm1$cv.error
+
+Inc.gbm1$fit[best.iter]
+
+summary(Inc.gbm1,n.trees=best.iter)
+#Inc.gbm1$var.names
+
+Inc.gbm1_pred=predict(Inc.gbm1,newdata=gbmdata,n.trees=best.iter1, type="response")#,single.tree=TRUE)
+gbm_training1<-confusionMatrix(ifelse(Inc.gbm1_pred>=0.5,"pos","neg"),reference=full_imputed$final_bin);gbm_training1
+```
+
+```{r}
+### gbm using weights with interaction depth 2
+#           Reference
+# Prediction  neg  pos
+#        neg 3094  360
+#        pos  938 1040
+#                                           
+#                Accuracy : 0.761           
+#                  95% CI : (0.7495, 0.7723)
+#     No Information Rate : 0.7423          
+#     P-Value [Acc > NIR] : 0.0007572       
+#                                           
+#                   Kappa : 0.4496          
+#  Mcnemar's Test P-Value : < 2.2e-16       
+#                                           
+#             Sensitivity : 0.7674          
+#             Specificity : 0.7429          
+#          Pos Pred Value : 0.8958          
+#          Neg Pred Value : 0.5258          
+#              Prevalence : 0.7423          
+#          Detection Rate : 0.5696          
+#    Detection Prevalence : 0.6359          
+#       Balanced Accuracy : 0.7551          
+#                                           
+#        'Positive' Class : neg    
+```
+
+
+```{r}
+set.seed(12345)
+Inc.gbm1 <- gbm(final_bin ~ .,
+                data=gbmdata,
+                distribution="bernoulli",
+                n.trees=2000,
+                weights = weights,
+                shrinkage=0.05,
+                interaction.depth=3,
+                bag.fraction = .5,
+                train.fraction = 1,
+                n.minobsinnode = 10,
+                cv.folds = 10,
+                keep.data=TRUE,
+                verbose=FALSE)
+
+Inc.gbm2$cv.error[best.iter] #92% best cv error
+Inc.gbm2$train.error[best.iter]#95% best train error...
+
+Inc.gbm2_pred=predict(Inc.gbm2,newdata=gbmdata,n.trees=best.iter,single.tree=TRUE, type="response")
+Inc.gbm2_pred[1:5]
+gbmdata$final_bin[1:5]
+
+gbm_training<-confusionMatrix(ifelse(Inc.gbm2_pred>=0.5,"pos","neg"),reference=full_imputed$final_bin);gbm_training
+
+```
+
+```{r}
+### gbm using weights with interaction depth 3. odd though that the cv and train error are better than what are presented here.
+###really odd that the cv.error at best iteration or train error at best iteration don't match the predict function.t
+#           Reference
+# Prediction  neg  pos
+#        neg 3187  313
+#        pos  845 1087
+#                                           
+#                Accuracy : 0.7868          
+#                  95% CI : (0.7757, 0.7976)
+#     No Information Rate : 0.7423          
+#     P-Value [Acc > NIR] : 1.054e-14       
+#                                           
+#                   Kappa : 0.5043          
+#  Mcnemar's Test P-Value : < 2.2e-16       
+#                                           
+#             Sensitivity : 0.7904          
+#             Specificity : 0.7764          
+#          Pos Pred Value : 0.9106          
+#          Neg Pred Value : 0.5626          
+#              Prevalence : 0.7423          
+#          Detection Rate : 0.5867          
+#    Detection Prevalence : 0.6443          
+#       Balanced Accuracy : 0.7834          
+                                    
+```
+
+
+##trying lightgbm
+```{r}
+##can't install?>?
+```
+
+
+
+# svm
+```{r}
+
+library(e1071)
+classifier = svm(formula = final_bin ~ ., 
+                 data = gbmdata, 
+                 type = 'C-classification', 
+                 kernel = 'polynomial') 
+?svm
+```
+
+```{r}
+# Predicting the Test set results 
+y_pred = predict(classifier, newdata = gbmdata[,-43]) 
+
+# Making the Confusion Matrix 
+cm = confusionMatrix(gbmdata[, 43], y_pred); cm
+```
+
+
+
+```{r}
+# installing library ElemStatLearn 
+library(ElemStatLearn) 
+  
+# Plotting the training data set results 
+set = gbmdata 
+X1 = seq(min(set[, 1]) - 1, max(set[, 1]) + 1, by = 0.01) #so first two features max and min and constant sequence between them
+X2 = seq(min(set[, 2]) - 1, max(set[, 2]) + 1, by = 0.01) 
+
+
+  
+grid_set = expand.grid(X1, X2) 
+colnames(grid_set) = c('amax_bun', 'amax_creatinine')
+y_grid = predict(classifier, newdata = grid_set) 
+  
+plot(set[, -3], 
+     main = 'SVM (Training set)', 
+     xlab = 'Age', ylab = 'Estimated Salary', 
+     xlim = range(X1), ylim = range(X2)) 
+  
+contour(X1, X2, matrix(as.numeric(y_grid), length(X1), length(X2)), add = TRUE) 
+  
+points(grid_set, pch = '.', col = ifelse(y_grid == 1, 'coral1', 'aquamarine')) 
+  
+points(set, pch = 21, bg = ifelse(set[, 3] == 1, 'green4', 'red3')) 
+```
+
+
 
 
 ```{r}
@@ -946,23 +1203,106 @@ pca_data<-full_imputed[,!names(full_imputed) %in% factor_vec]
 #pca_data[,2:ncol(pca_data)]
 
 #pca_data=pca_data[,!names(pca_data)%in% c("icustay_id","height","first_admit_age","weight")]
-
-PCA<-prcomp(as.matrix(pca_data[,2:ncol(pca_data)]), scale=FALSE)
-
+glimpse(pca_data)
+summary(exp(pca_data)-1)
+PCA<-prcomp(as.matrix(((pca_data))), scale=FALSE)
+as.matrix((pca_data))
 summary(PCA)
+PCA
 #prcomp(as.matrix(pca_data), scale = TRUE) %>% summary()
 
 df_out<- as.data.frame(PCA$x)
 df_out$group<- full_imputed$final_bin
 
-par(mfrow=c(2,2))
+# par(mfrow=c(2,2))
 p1<-ggplot(df_out, aes(x=PC1, y=PC2, color=group)) +geom_point()
 p2<-ggplot(df_out, aes(x=PC1, y=PC3, color=group)) +geom_point()
 p3<-ggplot(df_out, aes(x=PC2, y=PC3, color=group)) +geom_point()
 p4<-ggplot(df_out, aes(x=PC3, y=PC4, color=group)) +geom_point()
+# 
+# grid.arrange(p1,p2,p3,p4, nrow=2)
 
-grid.arrange(p1,p2,p3,p4, nrow=2)
+p1 #
 ```
+
+```{r}
+library(psych)
+pca_data
+fit3 = principal(pca_data[,c(1:9)], nfactor=2)
+print(fit3$loadings, cutoff=0.3, sort=TRUE)
+
+fit4 = principal(pca_data[,c(10:18)], nfactor=2)
+print(fit4$loadings, cutoff=0.3, sort=TRUE)
+
+fit5 = principal(pca_data[,c(19:26)], nfactor=2)
+print(fit5$loadings, cutoff=0.3, sort=TRUE)
+plot(fit3)
+
+fit6 = principal(pca_data[,c(28:36)], nfactor=2)
+print(fit6$loadings, cutoff=0.3, sort=TRUE)
+plot(fit6)
+
+fit7 = principal(pca_data[,c(1:9,28:36)], nfactor=2)
+print(fit7$loadings, cutoff=0.3, sort=TRUE)
+
+
+
+
+RC<-fit3$scores
+# plot(fit3, ylim=range(-0.2:1.2), labels=names(logcereal[,c(2:8,10)]))
+p<-ggplot(data=data.frame(RC),aes(x=RC[,1], y=RC[,2]))+ geom_point() 
+p+labs(x="RC1", y="RC2")
+
+
+RC<-fit3$scores
+
+shelf<- as.factor(full_imputed$final_bin)
+p<-ggplot(data=data.frame(RC),aes(x=RC[,1], y=RC[,2]))+
+  geom_point(aes(color=shelf,
+                 shape= shelf)) 
+p+labs(x="RC1", y="RC2") #+scale_color_manual(breaks = c("1", "2", "3"), values=c("black", "red", "green3"))
+```
+
+#trying t-sne
+
+```{r}
+## calling the installed package
+train<- pca_data[,c(1:9,28:36)] ## Choose the train.csv file downloaded from the link above  
+library(Rtsne)
+## Curating the database for analysis with both t-SNE and PCA
+Labels<-full_imputed$final_bin
+train$label<-as.factor(full_imputed$final_bin)
+## for plotting
+colors = rainbow(length(unique(train$label)))
+names(colors) = unique(train$label)
+
+## Executing the algorithm on curated data
+tsne <- Rtsne(pca_data[, !names(pca_data) %in% c("label")], dims = 2, perplexity=5, verbose=TRUE, max_iter = 500,theta=0.4, pca_center=FALSE,check_duplicates=FALSE)
+exeTimeTsne<- system.time(Rtsne(pca_data[, !names(pca_data) %in% c("label")], dims = 2, perplexity=5, verbose=TRUE, max_iter = 500,theta=0.4, pca_center=FALSE,check_duplicates=FALSE))
+
+?Rtsne
+
+## Plotting
+plot(tsne$Y, t='n', main="tsne")
+text(tsne$Y, labels=train$label, col=colors[train$label])
+
+
+#exploring
+
+train
+
+```
+
+
+
+
+
+
+
+
+
+
+
 
 
 ```{r}
@@ -1028,25 +1368,126 @@ why is this streaky?
 ---------CLUSTERING----------
 
 ```{r}
-# library(mclust)
+summary.kmeans = function(fit)
+{
+  p = ncol(fit$centers)
+  k = nrow(fit$centers)
+  n = sum(fit$size)
+  sse = sum(fit$withinss)
+  xbar = t(fit$centers)%*%fit$size/n
+  ssb = sum(fit$size*(fit$centers - rep(1,k) %*% t(xbar))^2)
+  print(data.frame(
+    n=c(fit$size, n),
+    Pct=(round(c(fit$size, n)/n,2)),
+    round(rbind(fit$centers, t(xbar)), 2),
+    RMSE = round(sqrt(c(fit$withinss/(p*fit$size-1), sse/(p*(n-k)))), 4)
+  ))
+  cat("SSE = ", sse, "; SSB = ", ssb, "\n")
+  cat("R-Squared = ", ssb/(ssb+sse), "\n")
+  cat("Pseudo F = ", (ssb/(k-1))/(sse/(n-k)), "\n\n");
+  invisible(list(sse=sse, ssb=ssb, Rsqr=ssb/(ssb+sse), F=(ssb/(k-1))/(sse/(n-k))))
+}
+
+plot.kmeans = function(fit,boxplot=F)
+{
+  require(lattice)
+  p = ncol(fit$centers)
+  k = nrow(fit$centers)
+  plotdat = data.frame(
+    mu=as.vector(fit$centers),
+    clus=factor(rep(1:k, p)),
+    var=factor( 0:(p*k-1) %/% k, labels=colnames(fit$centers))
+  )
+print(dotplot(var~mu|clus, data=plotdat,
+  panel=function(...){
+    panel.dotplot(...)
+    panel.abline(v=0, lwd=.1)
+  },
+  layout=c(k,1),
+  xlab="Cluster Mean"
+))
+invisible(plotdat)
+}
+```
+
+```{r}
+glimpse(pca_data)
+```
+
+```{r looking at number of clusters}
+
+f= double(7)
+for(K in 2:8)
+  F[K-1] = summary(
+    kmeans(pca_data, K, nstart=100))$F
+plot(2:8, F, type="b", xlab="Number of clusters")
+
+
+#so will try 2-3-4-5 clustering solution
+```
+
+```{r}
+f= double(7)
+for(K in 2:8)
+  F[K-1] = summary(
+    kmeans(exp(pca_data)-1, K, nstart=100))$F
+plot(2:8, F, type="b", xlab="Number of clusters")
+
+```
+
+
+```{r}
+set.seed(12345)
+fit <- kmeans(pca_data, centers = 2, nstart = 100)
+plot(fit)
+
+set.seed(12345)
+fit <- kmeans(pca_data, centers = 3, nstart = 100)
+plot(fit)
+
+set.seed(12345)
+fit <- kmeans(pca_data, centers = 4, nstart = 100)
+plot(fit)
+
+set.seed(12345)
+fit <- kmeans(pca_data, centers = 5, nstart = 100)
+plot(fit)
+
+```
+
+
+```{r}
+set.seed(12345)
+fit <- kmeans(exp(pca_data)-1, centers = 2, nstart = 100)
+plot(fit)
+
+set.seed(12345)
+fit <- kmeans(exp(pca_data)-1, centers = 3, nstart = 100)
+plot(fit)
+
+set.seed(12345)
+fit <- kmeans(exp(pca_data)-1, centers = 4, nstart = 100)
+plot(fit)
+
+set.seed(12345)
+fit <- kmeans(exp(pca_data)-1, centers = 5, nstart = 100)
+plot(fit)
+```
+
+
+```{r}
+library(mclust)
 # library(cluster) 
 # library(psych)
 # glimpse(full_imputed)
 # 
 # 
-# ####3 class clustering solution
-# pca_data
-# 
-# # principal(as.matrix(pca_data), scale=FALSE, rotation="none")
-# # principal(cor(as.matrix(pca_data)), nfactors=3)
-# 
 # # cluster using mclust
-# m.full.fit = Mclust(pca_data)
-# plot(m.full.fit)
-# 
-# 
-# k.full.fit<-kmeans(pca_data, centers=3)
-# k.full.fit
+m.full.fit= Mclust(pca_data[,c(1:9)], G=6, modelName = "VEV")
+plot(m.full.fit)
+m.full.fit
+
+?
 # 
 # #not useful, clustering off PCA components.
 # clusplot(pca_data,k.full.fit$cluster )
@@ -1054,6 +1495,25 @@ why is this streaky?
 ```
 
 
+
+
+```{r}
+pca_data
+fit3 = principal(pca_data[,c(1:9)], nfactor=3) #1:9
+print(fit3$loadings, cutoff=0.3, sort=TRUE)
+RC<-fit3$scores
+# plot(fit3, ylim=range(-0.2:1.2), labels=names(logcereal[,c(2:8,10)]))
+p<-ggplot(data=data.frame(RC),aes(x=RC[,1], y=RC[,2]))+ geom_point(aes(color=shelf,
+                 shape= shelf))
+p+labs(x="RC1", y="RC2")
+
+shelf<- as.factor(UScereal$shelf)
+p<-ggplot(data=data.frame(RC),aes(x=RC[,1], y=RC[,2]))+
+  geom_point(aes(color=shelf,
+                 shape= shelf)) 
+p+labs(x="RC1", y="RC2") +scale_color_manual(breaks = c("1", "2", "3"), values=c("black", "red", "green3"))
+
+```
 
 
 
