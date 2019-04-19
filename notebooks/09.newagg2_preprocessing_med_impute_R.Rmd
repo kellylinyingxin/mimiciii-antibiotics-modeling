@@ -58,10 +58,11 @@ newagg$first_admit_age[newagg$first_admit_age>90]<- 90 #since the
 
 
 newagg$leukocyte<- as.factor(newagg$leukocyte == 1)
+newagg$any_vasoactive<- as.factor(newagg$any_vasoactive == 1)
 newagg$vent_recieved<- as.factor(newagg$vent_recieved == 1)
 
-newagg
-final_pt
+# newagg
+# final_pt
 #final_pt[is.na(final_pt$Gram_pos),'Gram_pos'] <-3
 #final_pt<- subset(final_pt, Gram_pos!=2) #REMOVING MYCOBACERIA PATIENTS
 
@@ -117,7 +118,7 @@ testSet <- newagg_sid[-index,]
 
 ```{r}
 colSums(is.na(trainSet))
-trainSet
+glimpse(trainSet)
 
 # write.csv(trainSet, file ="/Users/geickelb1/Box/PAII_project/processed_data/pre_imputation_datasets/20190401_train_noimpute.csv", row.names=FALSE)
 ```
