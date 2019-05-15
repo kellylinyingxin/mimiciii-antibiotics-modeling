@@ -1284,7 +1284,7 @@ exeTimeTsne<- system.time(Rtsne(pca_data[, !names(pca_data) %in% c("label")], di
 
 ## Plotting
 plot(tsne$Y, t='n', main="tsne")
-text(tsne$Y, labels=train$label, col=colors[train$label])
+text(tsne$Y, col=colors[train$label])
 
 
 #exploring

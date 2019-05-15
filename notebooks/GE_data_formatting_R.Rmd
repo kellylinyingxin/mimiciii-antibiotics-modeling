@@ -23,13 +23,22 @@ set.seed(12345)
 ```
 
 
-note this is the data i was using in winter 2019, however i made a few tuning adjustments in my pipeline while workign on the PA project. I have not updated my origional data since then, and can do this once i have my modelformatting and modeling pipeline in place. Overall, I do not expect to see any noticeable difference in the data.
 ```{r}
-worst2<- read.csv("/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/processed/22112018_worstdf2_preImp.csv",stringsAsFactors=TRUE, check.names=FALSE)
-final_pt<- read.csv("/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/raw/csv/25012019_final_pt_df2_v.csv",stringsAsFactors=TRUE, check.names=FALSE)
+worst2<- read.csv('/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/processed/merged/04042019_worstdf_preImp.csv',stringsAsFactors=TRUE, check.names=FALSE)
+final_pt<- read.csv("/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/data/raw/csv/04042019_final_pt_df2_v.csv",stringsAsFactors=TRUE, check.names=FALSE)
 
 
 ```
+
+```{r}
+summary(worst2['pao2fio2Ratio'])
+```
+
+
+```{r}
+glimpse(worst2)
+```
+
 
 ```{r some quick data cleaning and housekeeping}
 
@@ -49,6 +58,8 @@ colnames(worst2)[colnames(worst2)=="pao2/fio2"] <- "pao2fio2Ratio"
 ##changing 90 to be max age instead of 300
 worst2$first_admit_age[worst2$first_admit_age>90]<- 90
 
+#worst2$dopamine<- as.factor(worst2$an == 1)
+worst2$any_vasoactive<- as.factor(worst2$any_vasoactive == 1)
 worst2$dopamine<- as.factor(worst2$dopamine == 1)
 worst2$dobutamine<- as.factor(worst2$dobutamine == 1)
 worst2$vasopressin<- as.factor(worst2$vasopressin == 1)
@@ -102,6 +113,15 @@ worst2 %>%
 
 ```
 
+```{r}
+worst2 %>% 
+  select(vasopressin) %>% 
+  group_by(vasopressin) %>% 
+  dplyr::summarise(n())
+
+```
+
+
 
 ```{r merging final clinical data with patient data to ensure all rows have the outcome and sufficient identifier }
 
@@ -115,6 +135,13 @@ worst2_sid<- worst2_sid[worst2_sid$icustay_id %in% final_pt$icustay_id,]
 #worst2_sid$Var.2 <- NULL
 worst2_sid<- worst2_sid[,!(names(worst2_sid) %in% c('Var.2'))] #dropping a weird var.2. 
 glimpse(worst2_sid)
+```
+
+
+#####filtering to only twoclass:
+
+```{r}
+worst2_sid=worst2_sid[worst2_sid$final_bin %in% c("C_neg/A_partial","C_pos/A_full"),]
 ```
 
 
@@ -141,6 +168,10 @@ trainSet
 ```
 
 
+```{r}
+summary(trainSet['pao2fio2Ratio'])
+```
+
 
 ```{r, imputing via median/mode}
 median_imputed<- impute(trainSet, method="median/mode")
@@ -162,6 +193,17 @@ write.csv(median_imputed, file ="/Users/geickelb1/Documents/GitHub/mimiciii-anti
 
 ```
 
+
+```{r}
+names(Filter(is.factor, median_imputed))
+#median_imputed
+```
+
+```{r}
+median_imputed[c('nitrite','leukocyte')]
+table(median_imputed[c('nitrite')])
+table(median_imputed[c('leukocyte')])
+```
 
 
 ### test set
@@ -187,22 +229,22 @@ write.csv(median_imputed_test, file ="/Users/geickelb1/Documents/GitHub/mimiciii
 
 
 ```{r}
-preprocessed<- preProcess(median_imputed, method = c("center","scale")) #convert to z-scores
-
-preprocessed_imputd<-predict(preprocessed, newdata= median_imputed)
-glimpse(preprocessed_imputd)
-
-preprocessed_test<- preProcess(median_imputed_test, method = c("center","scale")) #convert to z-scores
-
-preprocessed_imputd_test<-predict(preprocessed_test, newdata= median_imputed_test)
+# preprocessed<- preProcess(median_imputed, method = c("center","scale")) #convert to z-scores
+# 
+# preprocessed_imputd<-predict(preprocessed, newdata= median_imputed)
+# glimpse(preprocessed_imputd)
+# 
+# preprocessed_test<- preProcess(median_imputed_test, method = c("center","scale")) #convert to z-scores
+# 
+# preprocessed_imputd_test<-predict(preprocessed_test, newdata= median_imputed_test)
 
 ```
 
 
 ```{r}
-write.csv(preprocessed_imputd, file ="/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/models/imputation/01042019_median_imputed_train_normalized.csv", row.names=FALSE)
-
-write.csv(preprocessed_imputd_test, file ="/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/models/imputation/01042019_median_imputed_test_normalized.csv", row.names=FALSE)
+# write.csv(preprocessed_imputd, file ="/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/models/imputation/01042019_median_imputed_train_normalized.csv", row.names=FALSE)
+# 
+# write.csv(preprocessed_imputd_test, file ="/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/models/imputation/01042019_median_imputed_test_normalized.csv", row.names=FALSE)
 ```
 
 
