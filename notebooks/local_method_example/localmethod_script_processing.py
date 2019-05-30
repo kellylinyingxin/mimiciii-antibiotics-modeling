@@ -10,8 +10,6 @@ for time_interval in [24]:  # ,48,72,96,120,144]:
     # if you want to use local learning, I will sent a ppt for you, I think it may be good for you.
 
 
-
-
     skf = StratifiedKFold(n_splits=5)
     print '%%%%%'
     num_fold = 0
@@ -38,37 +36,38 @@ for time_interval in [24]:  # ,48,72,96,120,144]:
         lr_one_fold_proba = [] # obtain the proba  of testing samples for one fold using lr
 
         indicator_time = 0 # the indicator
-        for i, j in zip(test_z_icustay_id, test_index):
-            # i_index = np.where(test_z_icustay_id == i)
-            # tem_test_z_icustay_id = np.delete(test_z_icustay_id, i_index)
-            testing_sample_id = i
+        for testing_sample_id, testing_sample_icu in zip(test_z_icustay_id, test_index):
 
             all_xy_0 = all_xy.loc[train_z_icustay_id] # select training samples from  5 fold
             all_xy_training = all_xy_0.append(all_xy.loc[i]) # note that , containing the i
 
             m = 400  # m is the number of similar cases or similar controls
 
-            X_test_00 = x[j]
-            y_test = y[j]
-
-            X_test = X_test_00.reshape(1, -1)
+            X_test = x[testing_sample_icu].reshape(1, -1)
+            y_test = y[testing_sample_icu]
 
             # print 'start selecting......'
-
+            
             Id_train_set = select_train_samples(testing_sample_id, all_xy_training, m, time_interval)  #  individulization
-
+            """
+            #testing_sample_id: so all testing 
+            #all_xy_training:all training rows except with the single test sample appended
+            #m: #
+            #time_interval:w/e
+            ##output: icustay_id of 200 closest training and 200 closest grower testing samples
+            """
+            #testing_sample_id: so all testing 
+            #all_xy_training:all training rows except with the single test sample appended
+            #m: #
+            #time_interval:w/e
+            ##output: icustay_id of 200 closest training and 200 closest grower testing samples
+    
             ix = np.isin(z_icustay_id, Id_train_set)
-            Id_train_set_index = list(np.where(ix))
-
-            # Id_train_set_index = np.argwhere(z_icustay_id == Id_train_set)
-
-            X_train = x[Id_train_set_index]
-            y_train = y[Id_train_set_index]
-
+            X_train=x[ix]# parameters for m*2 training set
+            y_train=y[ix]# labels for m*2 training set
+            
             # print 'start training......'
-
             # scoring = 'roc_auc'
-
 # xgboost
 
             xgboost_mod = XGBClassifier(learning_rate=0.1, n_estimators=100, max_depth=5,
