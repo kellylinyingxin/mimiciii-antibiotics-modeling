@@ -120,3 +120,5 @@ models/PA_imputation/training_worst5.csv
 models/PA_imputation/training_worst8.csv
 models/PA_imputation/training_worst7.csv
 models/PA_imputation/training_worst9.csv
+*.png
+*.png
