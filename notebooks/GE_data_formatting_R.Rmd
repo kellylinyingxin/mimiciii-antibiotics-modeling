@@ -81,6 +81,7 @@ worst2$rrt<- as.factor(worst2$rrt == 1)
 
 ```
 
+
 ```{r}
 ##converting bands and pco2 into categorical factors
 worst2$ibands<- 'absent'
@@ -172,6 +173,17 @@ trainSet
 summary(trainSet['pao2fio2Ratio'])
 ```
 
+```{r}
+write.csv(trainSet, file ="/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/models/imputation/01042019_train.csv", row.names=FALSE)
+write.csv(testSet, file ="/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/models/imputation/01042019_test.csv", row.names=FALSE)
+```
+
+```{r}
+testSet
+```
+
+
+#imputation
 
 ```{r, imputing via median/mode}
 median_imputed<- impute(trainSet, method="median/mode")
@@ -189,6 +201,8 @@ glimpse(median_imputed)
 ```
 
 ```{r}
+
+write.csv(trainSet, file ="/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/models/imputation/01042019_train.csv", row.names=FALSE)
 write.csv(median_imputed, file ="/Users/geickelb1/Documents/GitHub/mimiciii-antibiotics-modeling/models/imputation/01042019_median_imputed_train.csv", row.names=FALSE) #"/Users/geickelb1/Documents/GitHub/PAII_mimic_project/processed_data/20190221_median_imputed.csv")
 
 ```
