@@ -1,0 +1,9 @@
+﻿source,target,value,color,label
+-1,0,61532,purple,MIMICIII ICUstay_id
+0,1,38395,purple,"has SSC, >16yo"
+1,2,26020,purple,has ABrx
+2,3,14478,purple,final
+3,4,5723,green,C_neg/A_partial
+3,5,2042,green,C_pos/A_full
+3,6,5206,orange,C_neg/A_full
+3,7,1507,orange,C_pos/A_partial
