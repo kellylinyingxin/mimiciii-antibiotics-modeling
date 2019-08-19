@@ -1,0 +1,46 @@
+Predictors,missing_pct,source,uom,aggregation,description
+bicarbonate,0.20%,bg_all & labs,mEq/L,min,"This test measures the amount of bicarbonate, a form of carbon dioxide, in your blood. Bicarbonate, also known as HCO3, is a byproduct of your body's metabolism. "
+bilirubin,33.31%,labs,mg/dL,max,concentration of bilirubin in blood. A bilirubin test can help diagnose or monitor problems in your blood or liver
+bun,0.19%,labs,mg/dL,max,"A BUN test is done to see how well your kidneys are working. If your kidneys are not able to remove urea from the blood normally, your BUN level rises"
+Calcium,53.74%,bg_all,mmol/L,"min,max",blood calcium readings in timewindow
+chloride,0.19%,labs,mEq/L,max,concentration of chloride in blood
+creatinine,0.19%,labs,mg/dL,max,concentration of creatinine in blood
+daily_sofa,2.85%,sofa,daily_sofa_score,max,sofa score is a composite score that is correlated with a patient's risk of experiencing organ failure. The score was compiled per day for patients
+diasbp,1.62%,vitals,mmHg,min,diastolic bloodpressure
+dobutamine,0.00%,dobutamine,y/n,max,presence/absence if vasoactive medication was used
+dopamine,0.00%,dopamine,y/n,max,presence/absence if vasoactive medication was used
+epinephrine,0.00%,epinephrine,y/n,max,presence/absence if vasoactive medication was used
+first_admit_age,0.00%,pt_info,years,max,age of patient at (CU admission
+gcs,76.69%,gcs,gcs_score,min,min glasgow coma scale reading in timewindow
+glucose,0.06%,"labs, vitals, bg_all",mg/dL,max,blood glucose readings
+heartrate,1.57%,vitals,bpm,max,
+hemoglobin,0.17%,"labs, bg_all",g/dL,min,concentration of hemoglobin in blood
+ibands,0.00%,labs,missing/low/high,max,"Leukocytes fight infection through a process known as phagocytosis.When immature WBCs are first released from the bone marrow into the peripheral blood, they are called ""bands"""
+inr,10.23%,labs,inr,max,Prothrombin time (PT) is a blood test that measures the time it takes for the liquid portion (plasma) of your blood to clot. Reported in INR (international normalized ratio).
+ipco2,0.00%,bg_ART,"factor: absent,low, high",max,arterial partial pressure of Co2
+lactate,28.71%,"bg_all, labs",mmol/L,max,concentration of lactate in the blood
+leukocyte,0.00%,urinary tract data,pos/neg category,max,presence/absence if nitrites were found in urine over timewindow
+meanartpress,1.59%,vitals,mmHg,min,arterial bloodpressure
+nitrite,0.00%,urinary tract data,pos/neg category,max,presence/absence if nitrites were found in urine over timewindow
+norepinephrine,0.00%,norepinephrine,y/n,max,presence/absence if vasoactive medication was used
+pao2fio2Ratio,0.00%,bg_ART,ratio,min,ratio of paO2:fiO2 in arteries measured via bloodgas.
+ph,27.90%,bg_all,units,min,measure of blood pH
+phenylephrine,0.00%,phenylephrine,y/n,max,presence/absence if vasoactive medication was used
+platelet,0.15%,labs,K/uL,min,platlet count
+potassium,0.15%,"bg_all,labs",mEq/L,max,blood potassium concentration
+ptt,10.52%,labs,sec,max,Partial Thromboplastin Time 
+resprate,1.59%,vitals,insp/min,max,
+rrt,0.00%,rrt,y/n,max,was renal replacement therapy administered in timewindow
+Sodium,0.17%,labs,mEq/L,"min,max",sodium readings in timewindow
+spo2,1.62%,vitals,%,min,peripheral oxygen saturation
+sysbp,1.62%,vitals,mmHg,min,systolic bloodpressure
+temperature,1.80%,vitals,Deg. C,max,internal temperature reading
+vasopressin,0.00%,vasopressin,y/n,max,presence/absence if vasoactive medication was used
+vent_recieved,0.00%,ventcategory,mech/O2/none category,max,"was a patient put on a ventilator for breathing assistance, and if so what kind? "
+WBC,0.15%,labs,K/uL,"min,max",white cell reading  in timewindow
+weight,8.98%,weight,kg,max,
+,,,,,
+,,,,,
+,,,,,
+,,,,,
+,,,57,,
